@@ -30,6 +30,7 @@ func newServer(apiKey, name string) *server {
 	mux.HandleFunc("GET /api/config", s.handleConfig)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/issues", s.handleIssues)
+	mux.HandleFunc("GET /api/domains", s.handleDomains)
 	mux.HandleFunc("GET /api/stats/issue/{n}", s.handleIssueStats)
 	mux.HandleFunc("GET /print/issue/{n}", s.handlePrint)
 	sub, _ := fs.Sub(webFiles, "web")

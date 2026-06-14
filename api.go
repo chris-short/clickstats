@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -43,6 +45,16 @@ type issueStatsResponse struct {
 	Links       []linkCount `json:"links"`
 }
 
+type domainCount struct {
+	Domain string `json:"domain"`
+	Clicks int    `json:"clicks"`
+	Links  int    `json:"links"`
+}
+
+type domainsResponse struct {
+	Domains []domainCount `json:"domains"`
+}
+
 // --- Helpers ---
 
 func sortedLinks(counts map[string]int, limit int) []linkCount {
@@ -70,6 +82,14 @@ func sumCounts(counts map[string]int) int {
 	return n
 }
 
+func extractDomain(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return strings.TrimPrefix(u.Host, "www.")
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
@@ -78,6 +98,21 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 // --- Data loaders (shared by handlers and cache warmer) ---
+
+// cachedAllClicks returns all-time click counts, using the cache to avoid
+// redundant Buttondown paginations when both stats and domains need this data.
+func (s *server) cachedAllClicks() (map[string]int, error) {
+	const key = "_raw_clicks"
+	if v, ok := s.cache.get(key); ok {
+		return v.(map[string]int), nil
+	}
+	counts, err := fetchAllClicks(s.apiKey)
+	if err != nil {
+		return nil, err
+	}
+	s.cache.set(key, counts)
+	return counts, nil
+}
 
 func (s *server) loadStats() (statsResponse, error) {
 	var counts map[string]int
@@ -88,7 +123,7 @@ func (s *server) loadStats() (statsResponse, error) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		counts, countsErr = fetchAllClicks(s.apiKey)
+		counts, countsErr = s.cachedAllClicks()
 	}()
 	go func() {
 		defer wg.Done()
@@ -114,6 +149,36 @@ func (s *server) loadStats() (statsResponse, error) {
 		AvgClicksPerIssue: avg,
 		TopLinks:          sortedLinks(counts, 20),
 	}, nil
+}
+
+func (s *server) loadDomains() (domainsResponse, error) {
+	counts, err := s.cachedAllClicks()
+	if err != nil {
+		return domainsResponse{}, err
+	}
+	domainClicks := map[string]int{}
+	domainLinks := map[string]int{}
+	for u, c := range counts {
+		d := extractDomain(u)
+		if d != "" {
+			domainClicks[d] += c
+			domainLinks[d]++
+		}
+	}
+	domains := make([]domainCount, 0, len(domainClicks))
+	for d, c := range domainClicks {
+		domains = append(domains, domainCount{Domain: d, Clicks: c, Links: domainLinks[d]})
+	}
+	sort.Slice(domains, func(i, j int) bool {
+		if domains[i].Clicks != domains[j].Clicks {
+			return domains[i].Clicks > domains[j].Clicks
+		}
+		return domains[i].Domain < domains[j].Domain
+	})
+	if len(domains) > 50 {
+		domains = domains[:50]
+	}
+	return domainsResponse{Domains: domains}, nil
 }
 
 func (s *server) loadIssues() (issuesResponse, error) {
@@ -166,18 +231,31 @@ func (s *server) loadIssues() (issuesResponse, error) {
 	return issuesResponse{Issues: summaries}, nil
 }
 
-// warmCache fires background goroutines to populate the two most expensive
-// cache entries so the first page load doesn't have to wait.
+// warmCache fetches raw click data once, then derives stats and domains from
+// the cached result so Buttondown is only paginated once at startup.
 func (s *server) warmCache() {
 	go func() {
-		resp, err := s.loadStats()
-		if err == nil {
-			s.cache.set("stats", resp)
+		if _, err := s.cachedAllClicks(); err != nil {
+			return
 		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if resp, err := s.loadStats(); err == nil {
+				s.cache.set("stats", resp)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if resp, err := s.loadDomains(); err == nil {
+				s.cache.set("domains", resp)
+			}
+		}()
+		wg.Wait()
 	}()
 	go func() {
-		resp, err := s.loadIssues()
-		if err == nil {
+		if resp, err := s.loadIssues(); err == nil {
 			s.cache.set("issues", resp)
 		}
 	}()
@@ -207,6 +285,21 @@ func (s *server) handleIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := s.loadIssues()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.cache.set(cacheKey, resp)
+	writeJSON(w, resp)
+}
+
+func (s *server) handleDomains(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "domains"
+	if v, ok := s.cache.get(cacheKey); ok {
+		writeJSON(w, v)
+		return
+	}
+	resp, err := s.loadDomains()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

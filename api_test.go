@@ -152,6 +152,42 @@ func TestHandleIssues(t *testing.T) {
 	}
 }
 
+func TestHandleDomains(t *testing.T) {
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(eventsPage{
+			Results: []emailEvent{
+				fakeEvent("https://a.com/page1"),
+				fakeEvent("https://a.com/page2"),
+				fakeEvent("https://b.com/page1"),
+			},
+		})
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	req := httptest.NewRequest("GET", "/api/domains", nil)
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d want 200", w.Code)
+	}
+	var resp domainsResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Domains) != 2 {
+		t.Errorf("Domains len: got %d want 2", len(resp.Domains))
+	}
+	if resp.Domains[0].Domain != "a.com" {
+		t.Errorf("Domains[0].Domain: got %q want \"a.com\"", resp.Domains[0].Domain)
+	}
+	if resp.Domains[0].Clicks != 2 {
+		t.Errorf("Domains[0].Clicks: got %d want 2", resp.Domains[0].Clicks)
+	}
+	if resp.Domains[0].Links != 2 {
+		t.Errorf("Domains[0].Links: got %d want 2", resp.Domains[0].Links)
+	}
+}
+
 func TestHandlePrintNoSponsor(t *testing.T) {
 	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

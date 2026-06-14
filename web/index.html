@@ -2,63 +2,109 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Click Stats</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
           integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"
           crossorigin="anonymous"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
     body { background: #0f0f1a; color: #e2e8f0; font-family: system-ui, sans-serif; font-size: 14px; }
 
-    header { display: flex; justify-content: space-between; align-items: center;
-             padding: 12px 20px; border-bottom: 1px solid #1e1e3a; }
+    /* ---- Header ---- */
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 20px; border-bottom: 1px solid #1e1e3a;
+    }
     header h1 { font-size: 16px; font-weight: 600; }
-    #last-refreshed { color: #6b7280; font-size: 12px; }
+    #last-refreshed { color: #6b7280; font-size: 12px; white-space: nowrap; }
 
+    /* ---- Stats bar ---- */
     #stats-bar { display: flex; border-bottom: 1px solid #1e1e3a; }
-    .stat { flex: 1; padding: 14px 20px; border-right: 1px solid #1e1e3a; }
+    .stat { flex: 1; padding: 14px 20px; border-right: 1px solid #1e1e3a; min-width: 0; }
     .stat:last-child { border-right: none; }
-    .stat-value { font-size: 26px; font-weight: 700; }
-    .stat-label { font-size: 10px; color: #6b7280; text-transform: uppercase;
-                  letter-spacing: .06em; margin-top: 3px; }
+    .stat-value { font-size: 28px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stat-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; margin-top: 3px; }
 
-    #panels { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #1e1e3a; }
-    section { padding: 16px 20px; }
-    #issue-panel { border-left: 1px solid #1e1e3a; }
-    .panel-header { display: flex; justify-content: space-between; align-items: center;
-                    margin-bottom: 14px; }
-    .panel-title { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; }
-    .controls { display: flex; gap: 6px; align-items: center; }
+    /* ---- Nav ---- */
+    #nav {
+      display: flex; border-bottom: 1px solid #1e1e3a;
+      overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    #nav::-webkit-scrollbar { display: none; }
+    .nav-btn {
+      flex-shrink: 0; background: none; border: none; border-bottom: 2px solid transparent;
+      color: #6b7280; padding: 11px 22px; font-size: 13px; font-weight: 500;
+      cursor: pointer; white-space: nowrap; transition: color .15s;
+    }
+    .nav-btn:hover { color: #c4c9d4; }
+    .nav-btn.active { color: #e2e8f0; border-bottom-color: #4f46e5; }
 
-    input[type=number] { width: 68px; background: #1a1a2e; border: 1px solid #2a2a3e;
-                         color: #e2e8f0; padding: 5px 8px; border-radius: 4px; font-size: 13px; }
-    button { background: #4f46e5; color: #fff; border: none; padding: 5px 12px;
-             border-radius: 4px; font-size: 12px; cursor: pointer; }
+    /* ---- Tab panes ---- */
+    .tab-pane { display: none; padding: 24px 20px; }
+    .tab-pane.active { display: block; }
+
+    /* ---- Charts ---- */
+    .chart-section { margin-bottom: 36px; }
+    .section-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
+    }
+    .section-title { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .07em; }
+    .chart-wrap { position: relative; height: 520px; }
+    .chart-wrap.md  { height: 400px; }
+    .chart-wrap.sm  { height: 240px; }
+
+    /* ---- Controls ---- */
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input[type=number], input[type=text], input[type=search] {
+      background: #1a1a2e; border: 1px solid #2a2a3e; color: #e2e8f0;
+      padding: 7px 11px; border-radius: 5px; font-size: 13px;
+    }
+    input[type=number] { width: 96px; }
+    input[type=search]  { width: 240px; }
+    input::placeholder { color: #4b5563; }
+    button {
+      background: #4f46e5; color: #fff; border: none; padding: 7px 16px;
+      border-radius: 5px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s;
+    }
     button:hover { background: #4338ca; }
     button.green { background: #059669; }
     button.green:hover { background: #047857; }
+    button.muted { background: #374151; }
+    button.muted:hover { background: #4b5563; }
 
-    .chart-wrap { position: relative; height: 380px; }
-    .placeholder { color: #4b5563; font-size: 13px; padding: 60px 0; text-align: center; }
+    /* ---- Placeholder ---- */
+    .placeholder { color: #4b5563; font-size: 13px; padding: 80px 0; text-align: center; }
 
-    #trend-section { padding: 16px 20px; }
-    .trend-wrap { position: relative; height: 240px; }
-
-    /* Modal */
-    #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
-                     align-items: center; justify-content: center; z-index: 10; }
+    /* ---- Modal ---- */
+    #modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+      align-items: center; justify-content: center; z-index: 10;
+    }
     #modal-overlay.open { display: flex; }
-    #modal { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 8px;
-             padding: 24px; min-width: 340px; }
+    #modal {
+      background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 8px;
+      padding: 24px; width: min(400px, 92vw);
+    }
     #modal h3 { font-size: 15px; margin-bottom: 16px; }
-    #modal label { display: block; font-size: 11px; color: #6b7280;
-                   text-transform: uppercase; margin-bottom: 6px; }
-    #modal input[type=text] { width: 100%; background: #111; border: 1px solid #2a2a3e;
-                               color: #e2e8f0; padding: 7px 10px; border-radius: 4px;
-                               font-size: 13px; margin-bottom: 18px; }
+    #modal label { display: block; font-size: 11px; color: #6b7280; text-transform: uppercase; margin-bottom: 6px; }
+    #modal input[type=text] { width: 100%; margin-bottom: 18px; }
     #modal .actions { display: flex; gap: 8px; }
-    button.cancel { background: #374151; }
-    button.cancel:hover { background: #4b5563; }
+
+    /* ---- Mobile ---- */
+    @media (max-width: 600px) {
+      .stat { padding: 10px 14px; }
+      .stat-value { font-size: 22px; }
+      .stat-label { font-size: 9px; }
+      .tab-pane { padding: 16px; }
+      .chart-wrap      { height: 360px; }
+      .chart-wrap.md   { height: 300px; }
+      .chart-wrap.sm   { height: 180px; }
+      input[type=search] { width: 100%; }
+      header h1 { font-size: 14px; }
+      #last-refreshed { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -74,46 +120,65 @@
     <div class="stat-label">Total Clicks</div>
   </div>
   <div class="stat">
-    <div class="stat-value" id="issues-tracked">-</div>
+    <div class="stat-value" id="issues-sent">-</div>
     <div class="stat-label">Issues Sent</div>
   </div>
   <div class="stat">
     <div class="stat-value" id="avg-clicks">-</div>
-    <div class="stat-label">Avg Clicks / Issue</div>
+    <div class="stat-label">Avg / Issue</div>
   </div>
 </div>
 
-<div id="panels">
-  <section>
-    <div class="panel-header">
-      <span class="panel-title">All Time Top Links</span>
+<nav id="nav">
+  <button class="nav-btn active" data-tab="overview"  onclick="switchTab('overview')">Overview</button>
+  <button class="nav-btn"        data-tab="issues"    onclick="switchTab('issues')">Issues</button>
+  <button class="nav-btn"        data-tab="domains"   onclick="switchTab('domains')">Domains</button>
+</nav>
+
+<!-- Overview -->
+<div id="tab-overview" class="tab-pane active">
+  <div class="chart-section">
+    <div class="section-header">
+      <span class="section-title">All Time Top Links</span>
     </div>
     <div class="chart-wrap"><canvas id="alltime-chart"></canvas></div>
-  </section>
-
-  <section id="issue-panel">
-    <div class="panel-header">
-      <span class="panel-title">Issue Breakdown</span>
-      <div class="controls">
-        <input type="number" id="issue-input" placeholder="Issue #" min="1">
-        <button onclick="loadIssue()">Go</button>
-        <button class="green" onclick="openModal()">PDF</button>
-      </div>
+  </div>
+  <div class="chart-section">
+    <div class="section-header">
+      <span class="section-title">Click Trend - Last 10 Issues</span>
     </div>
-    <div id="issue-placeholder" class="placeholder">Enter an issue number and click Go</div>
-    <div class="chart-wrap" id="issue-chart-wrap" style="display:none">
-      <canvas id="issue-chart"></canvas>
-    </div>
-  </section>
+    <div class="chart-wrap sm"><canvas id="trend-chart"></canvas></div>
+  </div>
 </div>
 
-<section id="trend-section">
-  <div class="panel-header">
-    <span class="panel-title">Click Trend - Last 10 Issues</span>
+<!-- Issues -->
+<div id="tab-issues" class="tab-pane">
+  <div class="section-header" style="margin-bottom:20px">
+    <span class="section-title">Issue Breakdown</span>
+    <div class="controls">
+      <input type="number" id="issue-input" placeholder="Issue #" min="1">
+      <button onclick="loadIssue()">Go</button>
+      <button class="green" onclick="openModal()">PDF Report</button>
+    </div>
   </div>
-  <div class="trend-wrap"><canvas id="trend-chart"></canvas></div>
-</section>
+  <div id="issue-placeholder" class="placeholder">Enter an issue number and click Go</div>
+  <div class="chart-wrap md" id="issue-chart-wrap" style="display:none">
+    <canvas id="issue-chart"></canvas>
+  </div>
+</div>
 
+<!-- Domains -->
+<div id="tab-domains" class="tab-pane">
+  <div class="section-header" style="margin-bottom:20px">
+    <span class="section-title" id="domains-title">Top Domains</span>
+    <div class="controls">
+      <input type="search" id="domain-search" placeholder="Filter domains..." oninput="filterDomains()">
+    </div>
+  </div>
+  <div class="chart-wrap"><canvas id="domains-chart"></canvas></div>
+</div>
+
+<!-- PDF modal -->
 <div id="modal-overlay">
   <div id="modal">
     <h3>Generate Sponsor PDF</h3>
@@ -121,43 +186,79 @@
     <input type="text" id="sponsor-url" placeholder="https://sponsor.example.com/...">
     <div class="actions">
       <button onclick="exportPdf()">Export</button>
-      <button class="cancel" onclick="closeModal()">Cancel</button>
+      <button class="muted" onclick="closeModal()">Cancel</button>
     </div>
   </div>
 </div>
 
 <script>
-  let alltimeChart = null, issueChart = null, trendChart = null;
+  let alltimeChart = null, issueChart = null, trendChart = null, domainsChart = null;
   let currentIssue = null;
+  let allDomains   = [];
 
-  const baseOpts = { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } } };
-  const GRID_COLOR = '#1e1e3a';
-  const TICK_COLOR = '#9ca3af';
+  const GRID  = '#1e1e3a';
+  const TICK  = '#9ca3af';
+  const BASE  = { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } } };
 
-  function renderHBar(canvasId, links, color, existing) {
+  // Human-readable number: 1234 -> "1.2k"
+  function fmtNum(n) {
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k';
+    return String(n);
+  }
+
+  // Clean URL label: strip scheme and www, truncate so total length <= 32 chars
+  function formatURL(raw) {
+    try {
+      const u    = new URL(raw);
+      const host = u.hostname.replace(/^www\./, '');
+      let   path = u.pathname;
+      const max  = Math.max(1, 32 - host.length);
+      if (path.length > max) path = path.slice(0, max - 1) + '…';
+      return host + path;
+    } catch {
+      return raw.replace(/^https?:\/\//, '').slice(0, 32);
+    }
+  }
+
+  // Shared options for horizontal bar charts
+  function hBarOpts(fullLabels) {
+    return {
+      ...BASE,
+      indexAxis: 'y',
+      scales: {
+        x: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
+        y: { grid: { display: false }, ticks: { color: TICK, font: { size: 11 } } },
+      },
+      plugins: {
+        ...BASE.plugins,
+        tooltip: { callbacks: {
+          title:  (items) => fullLabels[items[0].dataIndex],
+          label:  (ctx)   => '  ' + ctx.parsed.x.toLocaleString() + ' clicks',
+        }},
+      },
+    };
+  }
+
+  function renderHBar(canvasId, labels, data, color, fullLabels, existing) {
     if (existing) existing.destroy();
-    if (!links || !links.length) return null;
-    const labels  = links.map(l => l.url.replace(/^https?:\/\//, '').slice(0, 45));
-    const data    = links.map(l => l.clicks);
-    const fullURL = links.map(l => l.url);
+    if (!data || !data.length) return null;
     return new Chart(document.getElementById(canvasId), {
       type: 'bar',
-      data: { labels, datasets: [{ data, backgroundColor: color, borderRadius: 2 }] },
-      options: {
-        ...baseOpts,
-        indexAxis: 'y',
-        scales: {
-          x: { grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
-          y: { grid: { display: false }, ticks: { color: TICK_COLOR, font: { size: 11 } } },
-        },
-        plugins: {
-          ...baseOpts.plugins,
-          tooltip: { callbacks: { title: (items) => fullURL[items[0].dataIndex] } },
-        },
-      },
+      data: { labels, datasets: [{ data, backgroundColor: color, borderRadius: 3 }] },
+      options: hBarOpts(fullLabels),
     });
   }
 
+  // --- Tab switching ---
+  function switchTab(name) {
+    document.querySelectorAll('.nav-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.tab-pane').forEach(p =>
+      p.classList.toggle('active', p.id === 'tab-' + name));
+    if (name === 'domains' && allDomains.length === 0) loadDomains();
+  }
+
+  // --- Data loaders ---
   async function loadConfig() {
     try {
       const r = await fetch('/api/config');
@@ -166,9 +267,7 @@
       const title = d.name + ' Click Stats';
       document.title = title;
       document.getElementById('site-title').textContent = title;
-    } catch (err) {
-      console.error('loadConfig:', err);
-    }
+    } catch (err) { console.error('loadConfig:', err); }
   }
 
   async function loadAllTime() {
@@ -176,12 +275,16 @@
       const r = await fetch('/api/stats');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      document.getElementById('total-clicks').textContent   = d.total_clicks.toLocaleString();
-      document.getElementById('issues-tracked').textContent = d.issues_sent;
-      document.getElementById('avg-clicks').textContent     = d.avg_clicks_per_issue;
+      document.getElementById('total-clicks').textContent = d.total_clicks.toLocaleString();
+      document.getElementById('issues-sent').textContent  = d.issues_sent.toLocaleString();
+      document.getElementById('avg-clicks').textContent   = d.avg_clicks_per_issue.toLocaleString();
       document.getElementById('last-refreshed').textContent =
         'Refreshed ' + new Date().toLocaleTimeString();
-      alltimeChart = renderHBar('alltime-chart', d.top_links, '#059669', alltimeChart);
+      const labels = d.top_links.map(l => formatURL(l.url));
+      alltimeChart  = renderHBar(
+        'alltime-chart', labels, d.top_links.map(l => l.clicks),
+        '#059669', d.top_links.map(l => l.url), alltimeChart
+      );
     } catch (err) {
       console.error('loadAllTime:', err);
       document.getElementById('last-refreshed').textContent = 'Error loading stats';
@@ -192,7 +295,7 @@
     try {
       const r = await fetch('/api/issues');
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
+      const d   = await r.json();
       const issues = d.issues.slice().sort((a, b) => a.number - b.number);
       if (trendChart) trendChart.destroy();
       trendChart = new Chart(document.getElementById('trend-chart'), {
@@ -204,20 +307,24 @@
             backgroundColor: issues.map(i =>
               currentIssue && i.number === parseInt(currentIssue) ? '#818cf8' : '#4f46e5'
             ),
-            borderRadius: 2,
+            borderRadius: 3,
           }],
         },
         options: {
-          ...baseOpts,
+          ...BASE,
           scales: {
-            x: { grid: { display: false }, ticks: { color: TICK_COLOR } },
-            y: { grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
+            x: { grid: { display: false }, ticks: { color: TICK } },
+            y: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
+          },
+          plugins: {
+            ...BASE.plugins,
+            tooltip: { callbacks: {
+              label: (ctx) => '  ' + ctx.parsed.y.toLocaleString() + ' clicks',
+            }},
           },
         },
       });
-    } catch (err) {
-      console.error('loadTrend:', err);
-    }
+    } catch (err) { console.error('loadTrend:', err); }
   }
 
   async function loadIssue() {
@@ -226,33 +333,83 @@
     try {
       const r = await fetch('/api/stats/issue/' + n);
       if (!r.ok) {
-        const placeholder = document.getElementById('issue-placeholder');
-        placeholder.textContent = r.status === 404 ? 'Issue #' + n + ' not found.' : 'Error loading issue.';
-        placeholder.style.display = 'block';
+        const ph = document.getElementById('issue-placeholder');
+        ph.textContent  = r.status === 404 ? 'Issue #' + n + ' not found.' : 'Error loading issue.';
+        ph.style.display = 'block';
         document.getElementById('issue-chart-wrap').style.display = 'none';
         return;
       }
       const d = await r.json();
       currentIssue = n;
-      document.getElementById('issue-placeholder').style.display = 'none';
-      document.getElementById('issue-chart-wrap').style.display  = 'block';
-      issueChart = renderHBar('issue-chart', d.links, '#4f46e5', issueChart);
+      document.getElementById('issue-placeholder').style.display  = 'none';
+      document.getElementById('issue-chart-wrap').style.display   = 'block';
+      const labels = d.links.map(l => formatURL(l.url));
+      issueChart   = renderHBar(
+        'issue-chart', labels, d.links.map(l => l.clicks),
+        '#4f46e5', d.links.map(l => l.url), issueChart
+      );
       loadTrend();
-    } catch (err) {
-      console.error('loadIssue:', err);
-    }
+    } catch (err) { console.error('loadIssue:', err); }
   }
 
+  async function loadDomains() {
+    try {
+      const r = await fetch('/api/domains');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d   = await r.json();
+      allDomains  = d.domains;
+      renderDomains(allDomains.slice(0, 20));
+    } catch (err) { console.error('loadDomains:', err); }
+  }
+
+  function filterDomains() {
+    const q        = document.getElementById('domain-search').value.toLowerCase().trim();
+    const filtered = q ? allDomains.filter(d => d.domain.includes(q)) : allDomains;
+    const shown    = filtered.slice(0, 20);
+    renderDomains(shown);
+    document.getElementById('domains-title').textContent = q
+      ? filtered.length + ' domain' + (filtered.length !== 1 ? 's' : '') + ' matching "' + q + '"'
+      : 'Top Domains';
+  }
+
+  function renderDomains(domains) {
+    if (domainsChart) domainsChart.destroy();
+    if (!domains.length) { domainsChart = null; return; }
+    const links = domains.map(d => d.links);
+    domainsChart = new Chart(document.getElementById('domains-chart'), {
+      type: 'bar',
+      data: {
+        labels: domains.map(d => d.domain),
+        datasets: [{ data: domains.map(d => d.clicks), backgroundColor: '#7c3aed', borderRadius: 3 }],
+      },
+      options: {
+        ...BASE,
+        indexAxis: 'y',
+        scales: {
+          x: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
+          y: { grid: { display: false }, ticks: { color: TICK, font: { size: 12 } } },
+        },
+        plugins: {
+          ...BASE.plugins,
+          tooltip: { callbacks: {
+            title: (items) => domains[items[0].dataIndex].domain,
+            label: (ctx)   => [
+              '  ' + ctx.parsed.x.toLocaleString() + ' clicks',
+              '  ' + links[ctx.dataIndex] + ' unique link' + (links[ctx.dataIndex] !== 1 ? 's' : ''),
+            ],
+          }},
+        },
+      },
+    });
+  }
+
+  // --- PDF modal ---
   function openModal() {
     if (!currentIssue) { alert('Load an issue first.'); return; }
     document.getElementById('modal-overlay').classList.add('open');
     document.getElementById('sponsor-url').focus();
   }
-
-  function closeModal() {
-    document.getElementById('modal-overlay').classList.remove('open');
-  }
-
+  function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
   function exportPdf() {
     const sponsor = document.getElementById('sponsor-url').value.trim();
     let url = '/print/issue/' + currentIssue;
@@ -261,11 +418,15 @@
     closeModal();
   }
 
-  document.getElementById('issue-input')
-    .addEventListener('keydown', e => { if (e.key === 'Enter') loadIssue(); });
-  document.getElementById('modal-overlay')
-    .addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+  // --- Event listeners ---
+  document.getElementById('issue-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadIssue();
+  });
+  document.getElementById('modal-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
 
+  // Initial load + 5-minute auto-refresh
   Promise.all([loadConfig(), loadAllTime(), loadTrend()]);
   setInterval(() => Promise.all([loadAllTime(), loadTrend()]), 5 * 60 * 1000);
 </script>
