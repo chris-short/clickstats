@@ -271,6 +271,9 @@
   <div id="subtab-bottom-links" class="sub-pane">
     <div class="section-header" style="margin-bottom:20px">
       <span class="section-title" id="bottom-links-title">Bottom 100 Links</span>
+      <div class="controls">
+        <input type="search" id="bottom-search" placeholder="Filter links..." oninput="filterBottomLinks()">
+      </div>
     </div>
     <div id="bottom-links-list" class="link-list"></div>
   </div>
@@ -293,6 +296,7 @@
   let trendChart     = null;
   let currentIssue   = null;
   let allDomains     = [];
+  let allBottomLinks = [];
   let bottomLoaded   = false;
   let trendIssues    = [];
   let domainSort     = { col: 'clicks', dir: 'desc' };
@@ -554,10 +558,19 @@
       const r = await fetch('/api/links/bottom');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      document.getElementById('bottom-links-title').textContent =
-        'Bottom ' + d.links.length + ' Links (Fewest Clicks)';
-      renderLinkTable('bottom-links-list', d.links, '#d97706');
+      allBottomLinks = d.links;
+      filterBottomLinks();
     } catch (err) { console.error('loadBottomLinks:', err); }
+  }
+
+  function filterBottomLinks() {
+    const q        = document.getElementById('bottom-search').value.toLowerCase().trim();
+    const filtered = q ? allBottomLinks.filter(l => displayURL(l.url).includes(q)) : allBottomLinks;
+    const title    = q
+      ? filtered.length + ' link' + (filtered.length !== 1 ? 's' : '') + ' matching "' + q + '"'
+      : 'Bottom ' + allBottomLinks.length + ' Links (Fewest Clicks)';
+    document.getElementById('bottom-links-title').textContent = title;
+    renderLinkTable('bottom-links-list', filtered, '#d97706');
   }
 
   async function drillDomain(domain) {

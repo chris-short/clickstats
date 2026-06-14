@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -15,11 +16,12 @@ import (
 var webFiles embed.FS
 
 type server struct {
-	apiKey string
-	name   string
-	mux    *http.ServeMux
-	cache  *cache
-	disk   *diskCache // nil when no cache dir is available
+	apiKey         string
+	name           string
+	mux            *http.ServeMux
+	cache          *cache
+	disk           *diskCache // nil when no cache dir is available
+	excludeDomains map[string]bool
 }
 
 func newServer(apiKey, name string) *server {
@@ -61,6 +63,11 @@ func runServe(args []string) {
 		defaultCacheDir = d
 	}
 	cacheDir := fset.String("cache-dir", defaultCacheDir, "directory for persistent disk cache")
+	defaultExclude := "buttondown.com"
+	if e := os.Getenv("CLICKSTATS_EXCLUDE_DOMAINS"); e != "" {
+		defaultExclude = e
+	}
+	excludeFlag := fset.String("exclude-domains", defaultExclude, "comma-separated domains to exclude from all analytics")
 	fset.Parse(args)
 
 	apiKey := os.Getenv("BUTTONDOWN_API_KEY")
@@ -69,7 +76,15 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 
+	excluded := map[string]bool{}
+	for _, d := range strings.Split(*excludeFlag, ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			excluded[d] = true
+		}
+	}
+
 	s := newServer(apiKey, *name)
+	s.excludeDomains = excluded
 	s.disk = newDiskCache(*cacheDir)
 	fmt.Printf("clickstats cache: %s\n", s.disk.path)
 	s.warmCache()

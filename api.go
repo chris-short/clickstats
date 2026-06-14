@@ -93,6 +93,10 @@ func sumCounts(counts map[string]int) int {
 	return n
 }
 
+func (s *server) isExcluded(rawURL string) bool {
+	return len(s.excludeDomains) > 0 && s.excludeDomains[extractDomain(rawURL)]
+}
+
 func extractDomain(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" {
@@ -215,10 +219,11 @@ func (s *server) loadDomains() (domainsResponse, error) {
 	domainLinks := map[string]int{}
 	for u, c := range counts {
 		d := extractDomain(u)
-		if d != "" {
-			domainClicks[d] += c
-			domainLinks[d]++
+		if d == "" || s.excludeDomains[d] {
+			continue
 		}
+		domainClicks[d] += c
+		domainLinks[d]++
 	}
 	domains := make([]domainCount, 0, len(domainClicks))
 	for d, c := range domainClicks {
@@ -379,6 +384,9 @@ func (s *server) handleBottomLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	links := make([]linkCount, 0, len(counts))
 	for u, c := range counts {
+		if s.isExcluded(u) {
+			continue
+		}
 		links = append(links, linkCount{URL: u, Clicks: c})
 	}
 	sort.Slice(links, func(i, j int) bool {
