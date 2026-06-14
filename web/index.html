@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Click Stats</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
+          integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"
+          crossorigin="anonymous"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f0f1a; color: #e2e8f0; font-family: system-ui, sans-serif; font-size: 14px; }
+
+    header { display: flex; justify-content: space-between; align-items: center;
+             padding: 12px 20px; border-bottom: 1px solid #1e1e3a; }
+    header h1 { font-size: 16px; font-weight: 600; }
+    #last-refreshed { color: #6b7280; font-size: 12px; }
+
+    #stats-bar { display: flex; border-bottom: 1px solid #1e1e3a; }
+    .stat { flex: 1; padding: 14px 20px; border-right: 1px solid #1e1e3a; }
+    .stat:last-child { border-right: none; }
+    .stat-value { font-size: 26px; font-weight: 700; }
+    .stat-label { font-size: 10px; color: #6b7280; text-transform: uppercase;
+                  letter-spacing: .06em; margin-top: 3px; }
+
+    #panels { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #1e1e3a; }
+    section { padding: 16px 20px; }
+    #issue-panel { border-left: 1px solid #1e1e3a; }
+    .panel-header { display: flex; justify-content: space-between; align-items: center;
+                    margin-bottom: 14px; }
+    .panel-title { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; }
+    .controls { display: flex; gap: 6px; align-items: center; }
+
+    input[type=number] { width: 68px; background: #1a1a2e; border: 1px solid #2a2a3e;
+                         color: #e2e8f0; padding: 5px 8px; border-radius: 4px; font-size: 13px; }
+    button { background: #4f46e5; color: #fff; border: none; padding: 5px 12px;
+             border-radius: 4px; font-size: 12px; cursor: pointer; }
+    button:hover { background: #4338ca; }
+    button.green { background: #059669; }
+    button.green:hover { background: #047857; }
+
+    .chart-wrap { position: relative; height: 320px; }
+    .placeholder { color: #4b5563; font-size: 13px; padding: 60px 0; text-align: center; }
+
+    #trend-section { padding: 16px 20px; }
+    .trend-wrap { position: relative; height: 120px; }
+
+    /* Modal */
+    #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+                     align-items: center; justify-content: center; z-index: 10; }
+    #modal-overlay.open { display: flex; }
+    #modal { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 8px;
+             padding: 24px; min-width: 340px; }
+    #modal h3 { font-size: 15px; margin-bottom: 16px; }
+    #modal label { display: block; font-size: 11px; color: #6b7280;
+                   text-transform: uppercase; margin-bottom: 6px; }
+    #modal input[type=text] { width: 100%; background: #111; border: 1px solid #2a2a3e;
+                               color: #e2e8f0; padding: 7px 10px; border-radius: 4px;
+                               font-size: 13px; margin-bottom: 18px; }
+    #modal .actions { display: flex; gap: 8px; }
+    button.cancel { background: #374151; }
+    button.cancel:hover { background: #4b5563; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1 id="site-title">Click Stats</h1>
+  <span id="last-refreshed"></span>
+</header>
+
+<div id="stats-bar">
+  <div class="stat">
+    <div class="stat-value" id="total-clicks">-</div>
+    <div class="stat-label">Total Clicks</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value" id="issues-tracked">-</div>
+    <div class="stat-label">Issues Sent</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value" id="avg-clicks">-</div>
+    <div class="stat-label">Avg Clicks / Issue</div>
+  </div>
+</div>
+
+<div id="panels">
+  <section>
+    <div class="panel-header">
+      <span class="panel-title">All Time Top Links</span>
+    </div>
+    <div class="chart-wrap"><canvas id="alltime-chart"></canvas></div>
+  </section>
+
+  <section id="issue-panel">
+    <div class="panel-header">
+      <span class="panel-title">Issue Breakdown</span>
+      <div class="controls">
+        <input type="number" id="issue-input" placeholder="Issue #" min="1">
+        <button onclick="loadIssue()">Go</button>
+        <button class="green" onclick="openModal()">PDF</button>
+      </div>
+    </div>
+    <div id="issue-placeholder" class="placeholder">Enter an issue number and click Go</div>
+    <div class="chart-wrap" id="issue-chart-wrap" style="display:none">
+      <canvas id="issue-chart"></canvas>
+    </div>
+  </section>
+</div>
+
+<section id="trend-section">
+  <div class="panel-header">
+    <span class="panel-title">Click Trend - Last 10 Issues</span>
+  </div>
+  <div class="trend-wrap"><canvas id="trend-chart"></canvas></div>
+</section>
+
+<div id="modal-overlay">
+  <div id="modal">
+    <h3>Generate Sponsor PDF</h3>
+    <label>Sponsor URL (optional)</label>
+    <input type="text" id="sponsor-url" placeholder="https://sponsor.example.com/...">
+    <div class="actions">
+      <button onclick="exportPdf()">Export</button>
+      <button class="cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let alltimeChart = null, issueChart = null, trendChart = null;
+  let currentIssue = null;
+
+  const baseOpts = { animation: false, plugins: { legend: { display: false } } };
+  const GRID_COLOR = '#1e1e3a';
+  const TICK_COLOR = '#9ca3af';
+
+  function renderHBar(canvasId, links, color, existing) {
+    if (existing) existing.destroy();
+    if (!links || !links.length) return null;
+    const labels  = links.map(l => l.url.replace(/^https?:\/\//, '').slice(0, 58));
+    const data    = links.map(l => l.clicks);
+    const fullURL = links.map(l => l.url);
+    return new Chart(document.getElementById(canvasId), {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: color, borderRadius: 2 }] },
+      options: {
+        ...baseOpts,
+        indexAxis: 'y',
+        scales: {
+          x: { grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
+          y: { grid: { display: false }, ticks: { color: TICK_COLOR, font: { size: 11 } } },
+        },
+        plugins: {
+          ...baseOpts.plugins,
+          tooltip: { callbacks: { title: (items) => fullURL[items[0].dataIndex] } },
+        },
+      },
+    });
+  }
+
+  async function loadConfig() {
+    try {
+      const r = await fetch('/api/config');
+      if (!r.ok) return;
+      const d = await r.json();
+      const title = d.name + ' Click Stats';
+      document.title = title;
+      document.getElementById('site-title').textContent = title;
+    } catch (err) {
+      console.error('loadConfig:', err);
+    }
+  }
+
+  async function loadAllTime() {
+    try {
+      const r = await fetch('/api/stats');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      document.getElementById('total-clicks').textContent   = d.total_clicks.toLocaleString();
+      document.getElementById('issues-tracked').textContent = d.issues_sent;
+      document.getElementById('avg-clicks').textContent     = d.avg_clicks_per_issue;
+      document.getElementById('last-refreshed').textContent =
+        'Refreshed ' + new Date().toLocaleTimeString();
+      alltimeChart = renderHBar('alltime-chart', d.top_links, '#059669', alltimeChart);
+    } catch (err) {
+      console.error('loadAllTime:', err);
+      document.getElementById('last-refreshed').textContent = 'Error loading stats';
+    }
+  }
+
+  async function loadTrend() {
+    try {
+      const r = await fetch('/api/issues');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const issues = d.issues;
+      if (trendChart) trendChart.destroy();
+      trendChart = new Chart(document.getElementById('trend-chart'), {
+        type: 'bar',
+        data: {
+          labels: issues.map(i => '#' + i.number),
+          datasets: [{
+            data: issues.map(i => i.total_clicks),
+            backgroundColor: issues.map(i =>
+              currentIssue && i.number === parseInt(currentIssue) ? '#818cf8' : '#4f46e5'
+            ),
+            borderRadius: 2,
+          }],
+        },
+        options: {
+          ...baseOpts,
+          scales: {
+            x: { grid: { display: false }, ticks: { color: TICK_COLOR } },
+            y: { grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
+          },
+        },
+      });
+    } catch (err) {
+      console.error('loadTrend:', err);
+    }
+  }
+
+  async function loadIssue() {
+    const n = document.getElementById('issue-input').value.trim();
+    if (!n) return;
+    try {
+      const r = await fetch('/api/stats/issue/' + n);
+      if (!r.ok) {
+        const placeholder = document.getElementById('issue-placeholder');
+        placeholder.textContent = r.status === 404 ? 'Issue #' + n + ' not found.' : 'Error loading issue.';
+        placeholder.style.display = 'block';
+        document.getElementById('issue-chart-wrap').style.display = 'none';
+        return;
+      }
+      const d = await r.json();
+      currentIssue = n;
+      document.getElementById('issue-placeholder').style.display = 'none';
+      document.getElementById('issue-chart-wrap').style.display  = 'block';
+      issueChart = renderHBar('issue-chart', d.links, '#4f46e5', issueChart);
+      loadTrend();
+    } catch (err) {
+      console.error('loadIssue:', err);
+    }
+  }
+
+  function openModal() {
+    if (!currentIssue) { alert('Load an issue first.'); return; }
+    document.getElementById('modal-overlay').classList.add('open');
+    document.getElementById('sponsor-url').focus();
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+
+  function exportPdf() {
+    const sponsor = document.getElementById('sponsor-url').value.trim();
+    let url = '/print/issue/' + currentIssue;
+    if (sponsor) url += '?sponsor=' + encodeURIComponent(sponsor);
+    window.open(url, '_blank');
+    closeModal();
+  }
+
+  document.getElementById('issue-input')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') loadIssue(); });
+  document.getElementById('modal-overlay')
+    .addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+
+  Promise.all([loadConfig(), loadAllTime(), loadTrend()]);
+  setInterval(() => Promise.all([loadAllTime(), loadTrend()]), 5 * 60 * 1000);
+</script>
+</body>
+</html>
