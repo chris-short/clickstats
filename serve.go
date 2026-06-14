@@ -60,8 +60,9 @@ func runServe(args []string) {
 	}
 
 	s := newServer(apiKey, *name)
+	s.warmCache()
 	addr := fmt.Sprintf("%s:%d", *host, *port)
-	fmt.Printf("clickstats listening on http://%s\n", addr)
+	fmt.Printf("clickstats listening on http://%s (warming cache in background)\n", addr)
 	if err := http.ListenAndServe(addr, s.mux); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)

@@ -77,49 +77,58 @@ func writeJSON(w http.ResponseWriter, v any) {
 	}
 }
 
-// --- Handlers ---
+// --- Data loaders (shared by handlers and cache warmer) ---
 
-func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
-	const cacheKey = "stats"
-	if v, ok := s.cache.get(cacheKey); ok {
-		writeJSON(w, v)
-		return
+func (s *server) loadStats() (statsResponse, error) {
+	var counts map[string]int
+	var issueCount int
+	var countsErr, emailErr error
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		counts, countsErr = fetchAllClicks(s.apiKey)
+	}()
+	go func() {
+		defer wg.Done()
+		issueCount, emailErr = fetchEmailCount(s.apiKey)
+	}()
+	wg.Wait()
+
+	if countsErr != nil {
+		return statsResponse{}, countsErr
 	}
-	counts, err := fetchAllClicks(s.apiKey)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if emailErr != nil {
+		return statsResponse{}, emailErr
 	}
-	issueCount, err := fetchEmailCount(s.apiKey)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+
 	total := sumCounts(counts)
 	avg := 0
 	if issueCount > 0 {
 		avg = total / issueCount
 	}
-	resp := statsResponse{
+	return statsResponse{
 		TotalClicks:       total,
 		IssuesSent:        issueCount,
 		AvgClicksPerIssue: avg,
 		TopLinks:          sortedLinks(counts, 20),
-	}
-	s.cache.set(cacheKey, resp)
-	writeJSON(w, resp)
+	}, nil
 }
 
-func (s *server) handleIssues(w http.ResponseWriter, r *http.Request) {
-	const cacheKey = "issues"
-	if v, ok := s.cache.get(cacheKey); ok {
-		writeJSON(w, v)
-		return
-	}
-	emails, err := fetchRecentEmails(s.apiKey, 10)
+func (s *server) loadIssues() (issuesResponse, error) {
+	all, err := fetchRecentEmails(s.apiKey, 100)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return issuesResponse{}, err
+	}
+	emails := make([]email, 0, 10)
+	for _, e := range all {
+		if issueNumberFromSubject(e.Subject) > 0 {
+			emails = append(emails, e)
+			if len(emails) == 10 {
+				break
+			}
+		}
 	}
 
 	type result struct {
@@ -150,12 +159,58 @@ func (s *server) handleIssues(w http.ResponseWriter, r *http.Request) {
 	summaries := make([]issueSummary, 0, len(results))
 	for _, res := range results {
 		if res.err != nil {
-			http.Error(w, res.err.Error(), http.StatusInternalServerError)
-			return
+			return issuesResponse{}, res.err
 		}
 		summaries = append(summaries, res.summary)
 	}
-	resp := issuesResponse{Issues: summaries}
+	return issuesResponse{Issues: summaries}, nil
+}
+
+// warmCache fires background goroutines to populate the two most expensive
+// cache entries so the first page load doesn't have to wait.
+func (s *server) warmCache() {
+	go func() {
+		resp, err := s.loadStats()
+		if err == nil {
+			s.cache.set("stats", resp)
+		}
+	}()
+	go func() {
+		resp, err := s.loadIssues()
+		if err == nil {
+			s.cache.set("issues", resp)
+		}
+	}()
+}
+
+// --- Handlers ---
+
+func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "stats"
+	if v, ok := s.cache.get(cacheKey); ok {
+		writeJSON(w, v)
+		return
+	}
+	resp, err := s.loadStats()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.cache.set(cacheKey, resp)
+	writeJSON(w, resp)
+}
+
+func (s *server) handleIssues(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "issues"
+	if v, ok := s.cache.get(cacheKey); ok {
+		writeJSON(w, v)
+		return
+	}
+	resp, err := s.loadIssues()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	s.cache.set(cacheKey, resp)
 	writeJSON(w, resp)
 }

@@ -185,7 +185,7 @@ func fetchRecipientCount(apiKey, emailID string) (int, error) {
 	return a.Recipients, nil
 }
 
-var issueNumRe = regexp.MustCompile(`(\d+)\s*$`)
+var issueNumRe = regexp.MustCompile(`(\d+)(?:\s*:|$)`)
 
 func issueNumberFromSubject(subject string) int {
 	m := issueNumRe.FindStringSubmatch(subject)

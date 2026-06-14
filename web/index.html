@@ -38,11 +38,11 @@
     button.green { background: #059669; }
     button.green:hover { background: #047857; }
 
-    .chart-wrap { position: relative; height: 320px; }
+    .chart-wrap { position: relative; height: 380px; }
     .placeholder { color: #4b5563; font-size: 13px; padding: 60px 0; text-align: center; }
 
     #trend-section { padding: 16px 20px; }
-    .trend-wrap { position: relative; height: 120px; }
+    .trend-wrap { position: relative; height: 240px; }
 
     /* Modal */
     #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
@@ -130,14 +130,14 @@
   let alltimeChart = null, issueChart = null, trendChart = null;
   let currentIssue = null;
 
-  const baseOpts = { animation: false, plugins: { legend: { display: false } } };
+  const baseOpts = { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } } };
   const GRID_COLOR = '#1e1e3a';
   const TICK_COLOR = '#9ca3af';
 
   function renderHBar(canvasId, links, color, existing) {
     if (existing) existing.destroy();
     if (!links || !links.length) return null;
-    const labels  = links.map(l => l.url.replace(/^https?:\/\//, '').slice(0, 58));
+    const labels  = links.map(l => l.url.replace(/^https?:\/\//, '').slice(0, 45));
     const data    = links.map(l => l.clicks);
     const fullURL = links.map(l => l.url);
     return new Chart(document.getElementById(canvasId), {
@@ -193,7 +193,7 @@
       const r = await fetch('/api/issues');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      const issues = d.issues;
+      const issues = d.issues.slice().sort((a, b) => a.number - b.number);
       if (trendChart) trendChart.destroy();
       trendChart = new Chart(document.getElementById('trend-chart'), {
         type: 'bar',

@@ -97,6 +97,11 @@ func TestIssueNumberFromSubject(t *testing.T) {
 	}{
 		{"DevOps'ish 322", 322},
 		{"DevOps'ish 1", 1},
+		{"DevOps'ish 296: OpenClaw flaws, Notepad++ hit, and Ingress NGINX CVEs", 296},
+		{"DevOps'ish 299: Anthropic vs. US Gov, something else", 299},
+		{"DevOps'ish Returns", 0},
+		{"Sponsor DevOps’ish", 0},
+		{"Terms of Service", 0},
 		{"no number here", 0},
 	}
 	for _, c := range cases {
