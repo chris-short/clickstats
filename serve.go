@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -18,6 +19,7 @@ type server struct {
 	name   string
 	mux    *http.ServeMux
 	cache  *cache
+	disk   *diskCache // nil when no cache dir is available
 }
 
 func newServer(apiKey, name string) *server {
@@ -31,6 +33,8 @@ func newServer(apiKey, name string) *server {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/issues", s.handleIssues)
 	mux.HandleFunc("GET /api/domains", s.handleDomains)
+	mux.HandleFunc("GET /api/domains/{domain}", s.handleDomainLinks)
+	mux.HandleFunc("GET /api/links/bottom", s.handleBottomLinks)
 	mux.HandleFunc("GET /api/stats/issue/{n}", s.handleIssueStats)
 	mux.HandleFunc("GET /print/issue/{n}", s.handlePrint)
 	sub, _ := fs.Sub(webFiles, "web")
@@ -52,6 +56,11 @@ func runServe(args []string) {
 		defaultName = n
 	}
 	name := fset.String("name", defaultName, "newsletter name shown in dashboard")
+	defaultCacheDir := filepath.Join(mustHomeDir(), ".clickstats")
+	if d := os.Getenv("CLICKSTATS_CACHE_DIR"); d != "" {
+		defaultCacheDir = d
+	}
+	cacheDir := fset.String("cache-dir", defaultCacheDir, "directory for persistent disk cache")
 	fset.Parse(args)
 
 	apiKey := os.Getenv("BUTTONDOWN_API_KEY")
@@ -61,6 +70,8 @@ func runServe(args []string) {
 	}
 
 	s := newServer(apiKey, *name)
+	s.disk = newDiskCache(*cacheDir)
+	fmt.Printf("clickstats cache: %s\n", s.disk.path)
 	s.warmCache()
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	fmt.Printf("clickstats listening on http://%s (warming cache in background)\n", addr)
@@ -68,4 +79,12 @@ func runServe(args []string) {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func mustHomeDir() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return h
 }

@@ -5,9 +5,11 @@ Click analytics dashboard for [Buttondown](https://buttondown.com) newsletters. 
 ## What it does
 
 - Fetches click events from the Buttondown API and aggregates them by URL
-- Web dashboard with all-time top links, per-issue breakdown, and a 10-issue trend chart
+- Web dashboard with all-time top 50 links, per-issue breakdown, domain aggregation, and a 10-issue trend chart
+- Domain drill-down: click any domain to see all individual links for it
+- Bottom 100 links view: see which links got the least engagement
 - Sponsor report: generate a print-ready PDF showing a sponsor link's rank, clicks, and click rate
-- 10-minute in-memory cache so the dashboard stays fast
+- Two-tier cache: 10-minute in-memory TTL backed by a persistent disk cache (`~/.clickstats/cache.json`) so restarts are instant and old issue data is never re-fetched
 - CLI mode for quick one-off queries
 
 ## Prerequisites
@@ -37,8 +39,9 @@ Options:
 - `--port 8080` - port to listen on (default: 8080)
 - `--host 127.0.0.1` - host to bind (default: 127.0.0.1)
 - `--name "My Newsletter"` - name shown in the dashboard (default: DevOps'ish)
+- `--cache-dir ~/.clickstats` - directory for the persistent disk cache
 
-You can also set `CLICKSTATS_NAME` as an environment variable instead of using `--name`.
+Environment variable equivalents: `CLICKSTATS_NAME`, `CLICKSTATS_CACHE_DIR`.
 
 ### CLI
 
@@ -72,11 +75,13 @@ Fly.io runs a persistent container - no local infrastructure, no VMs to manage, 
    fly launch --name clickstats --region ord --no-deploy
    ```
 
-4. Set your API key as a secret:
+4. Set your API key and newsletter name as secrets:
    ```bash
    fly secrets set BUTTONDOWN_API_KEY=your_key
    fly secrets set CLICKSTATS_NAME="Your Newsletter"
    ```
+
+   Use `fly secrets` rather than the `[env]` section of `fly.toml` for sensitive values. Secrets are encrypted at rest, never appear in config files or deployment logs, and are injected as environment variables at runtime. To see what secrets are set (without revealing values): `fly secrets list`.
 
 5. Deploy:
    ```bash

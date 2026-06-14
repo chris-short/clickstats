@@ -152,15 +152,19 @@ func TestHandleIssues(t *testing.T) {
 	}
 }
 
+func fakeEvents(url string, n int) []emailEvent {
+	evts := make([]emailEvent, n)
+	for i := range evts {
+		evts[i] = fakeEvent(url)
+	}
+	return evts
+}
+
 func TestHandleDomains(t *testing.T) {
+	// a.com gets 101 clicks (above threshold), b.com gets 50 (below threshold).
+	results := append(fakeEvents("https://a.com/page1", 101), fakeEvents("https://b.com/page1", 50)...)
 	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(eventsPage{
-			Results: []emailEvent{
-				fakeEvent("https://a.com/page1"),
-				fakeEvent("https://a.com/page2"),
-				fakeEvent("https://b.com/page1"),
-			},
-		})
+		json.NewEncoder(w).Encode(eventsPage{Results: results})
 	})
 	defer cleanup()
 
@@ -174,17 +178,83 @@ func TestHandleDomains(t *testing.T) {
 	}
 	var resp domainsResponse
 	json.NewDecoder(w.Body).Decode(&resp)
-	if len(resp.Domains) != 2 {
-		t.Errorf("Domains len: got %d want 2", len(resp.Domains))
+	if len(resp.Domains) != 1 {
+		t.Errorf("Domains len: got %d want 1 (only a.com >= 100 clicks)", len(resp.Domains))
 	}
-	if resp.Domains[0].Domain != "a.com" {
-		t.Errorf("Domains[0].Domain: got %q want \"a.com\"", resp.Domains[0].Domain)
+	if len(resp.Domains) > 0 {
+		if resp.Domains[0].Domain != "a.com" {
+			t.Errorf("Domains[0].Domain: got %q want \"a.com\"", resp.Domains[0].Domain)
+		}
+		if resp.Domains[0].Clicks != 101 {
+			t.Errorf("Domains[0].Clicks: got %d want 101", resp.Domains[0].Clicks)
+		}
 	}
-	if resp.Domains[0].Clicks != 2 {
-		t.Errorf("Domains[0].Clicks: got %d want 2", resp.Domains[0].Clicks)
+}
+
+func TestHandleBottomLinks(t *testing.T) {
+	results := append(
+		fakeEvents("https://popular.com/page", 50),
+		fakeEvents("https://unpopular.com/page", 1)...,
+	)
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(eventsPage{Results: results})
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	req := httptest.NewRequest("GET", "/api/links/bottom", nil)
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d want 200", w.Code)
 	}
-	if resp.Domains[0].Links != 2 {
-		t.Errorf("Domains[0].Links: got %d want 2", resp.Domains[0].Links)
+	var resp linksResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Links) != 2 {
+		t.Errorf("Links len: got %d want 2", len(resp.Links))
+	}
+	// sorted ascending: unpopular first
+	if resp.Links[0].URL != "https://unpopular.com/page" {
+		t.Errorf("Links[0].URL: got %q want unpopular", resp.Links[0].URL)
+	}
+	if resp.Links[0].Clicks != 1 {
+		t.Errorf("Links[0].Clicks: got %d want 1", resp.Links[0].Clicks)
+	}
+}
+
+func TestHandleDomainLinks(t *testing.T) {
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(eventsPage{
+			Results: []emailEvent{
+				fakeEvent("https://a.com/page1"),
+				fakeEvent("https://a.com/page2"),
+				fakeEvent("https://a.com/page1"),
+				fakeEvent("https://b.com/page1"),
+			},
+		})
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	req := httptest.NewRequest("GET", "/api/domains/a.com", nil)
+	req.SetPathValue("domain", "a.com")
+	w := httptest.NewRecorder()
+	s.handleDomainLinks(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d want 200", w.Code)
+	}
+	var resp domainLinksResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Domain != "a.com" {
+		t.Errorf("Domain: got %q want \"a.com\"", resp.Domain)
+	}
+	if len(resp.Links) != 2 {
+		t.Errorf("Links len: got %d want 2", len(resp.Links))
+	}
+	if resp.Links[0].URL != "https://a.com/page1" || resp.Links[0].Clicks != 2 {
+		t.Errorf("Links[0]: %+v", resp.Links[0])
 	}
 }
 

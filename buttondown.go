@@ -123,7 +123,7 @@ func lookupEmailByIssue(apiKey string, issue int) (id, subject string, err error
 }
 
 func fetchSentEmailsPage(apiKey string) (*emailsPage, error) {
-	url := fmt.Sprintf("%s/emails?status=sent&excluded_fields=body&page=1", buttondownBase)
+	url := fmt.Sprintf("%s/emails?status=sent&excluded_fields=body&page=1&page_size=100&ordering=-creation_date", buttondownBase)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err

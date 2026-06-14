@@ -21,8 +21,10 @@ type linkCount struct {
 
 type statsResponse struct {
 	TotalClicks       int         `json:"total_clicks"`
+	TotalLinks        int         `json:"total_links"`
 	IssuesSent        int         `json:"issues_sent"`
 	AvgClicksPerIssue int         `json:"avg_clicks_per_issue"`
+	AvgLinksPerIssue  int         `json:"avg_links_per_issue"`
 	TopLinks          []linkCount `json:"top_links"`
 }
 
@@ -53,6 +55,15 @@ type domainCount struct {
 
 type domainsResponse struct {
 	Domains []domainCount `json:"domains"`
+}
+
+type domainLinksResponse struct {
+	Domain string      `json:"domain"`
+	Links  []linkCount `json:"links"`
+}
+
+type linksResponse struct {
+	Links []linkCount `json:"links"`
 }
 
 // --- Helpers ---
@@ -99,18 +110,58 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // --- Data loaders (shared by handlers and cache warmer) ---
 
-// cachedAllClicks returns all-time click counts, using the cache to avoid
-// redundant Buttondown paginations when both stats and domains need this data.
+// cachedAllClicks returns all-time click counts. It checks the in-memory cache,
+// then the disk cache, then falls back to the Buttondown API.
 func (s *server) cachedAllClicks() (map[string]int, error) {
 	const key = "_raw_clicks"
 	if v, ok := s.cache.get(key); ok {
 		return v.(map[string]int), nil
 	}
+	if s.disk != nil && s.disk.allClicksFresh() {
+		counts := s.disk.getAllClicks()
+		s.cache.set(key, counts)
+		return counts, nil
+	}
 	counts, err := fetchAllClicks(s.apiKey)
 	if err != nil {
+		// Serve stale disk data rather than failing completely.
+		if s.disk != nil {
+			if stale := s.disk.getAllClicks(); len(stale) > 0 {
+				fmt.Fprintf(os.Stderr, "API error, serving stale cache: %v\n", err)
+				s.cache.set(key, stale)
+				return stale, nil
+			}
+		}
 		return nil, err
 	}
 	s.cache.set(key, counts)
+	if s.disk != nil {
+		s.disk.setAllClicks(counts)
+	}
+	return counts, nil
+}
+
+// cachedClicksForEmail returns click counts for a single email, checking
+// in-memory cache, then disk cache, before calling the API.
+func (s *server) cachedClicksForEmail(emailID string) (map[string]int, error) {
+	memKey := "email:" + emailID
+	if v, ok := s.cache.get(memKey); ok {
+		return v.(map[string]int), nil
+	}
+	if s.disk != nil {
+		if counts, ok := s.disk.getIssueClicks(emailID); ok {
+			s.cache.set(memKey, counts)
+			return counts, nil
+		}
+	}
+	counts, err := fetchClicksForEmail(s.apiKey, emailID)
+	if err != nil {
+		return nil, err
+	}
+	s.cache.set(memKey, counts)
+	if s.disk != nil {
+		s.disk.setIssueClicks(emailID, counts)
+	}
 	return counts, nil
 }
 
@@ -138,16 +189,20 @@ func (s *server) loadStats() (statsResponse, error) {
 		return statsResponse{}, emailErr
 	}
 
-	total := sumCounts(counts)
-	avg := 0
+	total      := sumCounts(counts)
+	totalLinks := len(counts)
+	avgClicks, avgLinks := 0, 0
 	if issueCount > 0 {
-		avg = total / issueCount
+		avgClicks = total / issueCount
+		avgLinks  = totalLinks / issueCount
 	}
 	return statsResponse{
 		TotalClicks:       total,
+		TotalLinks:        totalLinks,
 		IssuesSent:        issueCount,
-		AvgClicksPerIssue: avg,
-		TopLinks:          sortedLinks(counts, 20),
+		AvgClicksPerIssue: avgClicks,
+		AvgLinksPerIssue:  avgLinks,
+		TopLinks:          sortedLinks(counts, 50),
 	}, nil
 }
 
@@ -175,10 +230,13 @@ func (s *server) loadDomains() (domainsResponse, error) {
 		}
 		return domains[i].Domain < domains[j].Domain
 	})
-	if len(domains) > 50 {
-		domains = domains[:50]
+	var result []domainCount
+	for _, d := range domains {
+		if d.Clicks >= 100 {
+			result = append(result, d)
+		}
 	}
-	return domainsResponse{Domains: domains}, nil
+	return domainsResponse{Domains: result}, nil
 }
 
 func (s *server) loadIssues() (issuesResponse, error) {
@@ -206,7 +264,7 @@ func (s *server) loadIssues() (issuesResponse, error) {
 		wg.Add(1)
 		go func(i int, e email) {
 			defer wg.Done()
-			counts, err := fetchClicksForEmail(s.apiKey, e.ID)
+			counts, err := s.cachedClicksForEmail(e.ID)
 			if err != nil {
 				results[i] = result{err: err}
 				return
@@ -308,6 +366,57 @@ func (s *server) handleDomains(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+func (s *server) handleBottomLinks(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "bottom_links"
+	if v, ok := s.cache.get(cacheKey); ok {
+		writeJSON(w, v)
+		return
+	}
+	counts, err := s.cachedAllClicks()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	links := make([]linkCount, 0, len(counts))
+	for u, c := range counts {
+		links = append(links, linkCount{URL: u, Clicks: c})
+	}
+	sort.Slice(links, func(i, j int) bool {
+		if links[i].Clicks != links[j].Clicks {
+			return links[i].Clicks < links[j].Clicks
+		}
+		return links[i].URL < links[j].URL
+	})
+	if len(links) > 100 {
+		links = links[:100]
+	}
+	resp := linksResponse{Links: links}
+	s.cache.set(cacheKey, resp)
+	writeJSON(w, resp)
+}
+
+func (s *server) handleDomainLinks(w http.ResponseWriter, r *http.Request) {
+	domain := r.PathValue("domain")
+	counts, err := s.cachedAllClicks()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var links []linkCount
+	for u, c := range counts {
+		if extractDomain(u) == domain {
+			links = append(links, linkCount{URL: u, Clicks: c})
+		}
+	}
+	sort.Slice(links, func(i, j int) bool {
+		if links[i].Clicks != links[j].Clicks {
+			return links[i].Clicks > links[j].Clicks
+		}
+		return links[i].URL < links[j].URL
+	})
+	writeJSON(w, domainLinksResponse{Domain: domain, Links: links})
+}
+
 func (s *server) handleIssueStats(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.Atoi(r.PathValue("n"))
 	if err != nil {
@@ -324,7 +433,7 @@ func (s *server) handleIssueStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	counts, err := fetchClicksForEmail(s.apiKey, emailID)
+	counts, err := s.cachedClicksForEmail(emailID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

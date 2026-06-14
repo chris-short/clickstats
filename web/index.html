@@ -27,7 +27,7 @@
     .stat-value { font-size: 28px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .stat-label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; margin-top: 3px; }
 
-    /* ---- Nav ---- */
+    /* ---- Primary nav ---- */
     #nav {
       display: flex; border-bottom: 1px solid #1e1e3a;
       overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
@@ -41,19 +41,77 @@
     .nav-btn:hover { color: #c4c9d4; }
     .nav-btn.active { color: #e2e8f0; border-bottom-color: #4f46e5; }
 
+    /* ---- Secondary nav (sub-tabs) ---- */
+    .sub-nav {
+      display: flex; border-bottom: 1px solid #1e1e3a; margin-bottom: 20px;
+    }
+    .sub-btn {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: #6b7280; padding: 8px 18px; font-size: 12px; font-weight: 500;
+      cursor: pointer; white-space: nowrap; transition: color .15s;
+    }
+    .sub-btn:hover { color: #c4c9d4; }
+    .sub-btn.active { color: #e2e8f0; border-bottom-color: #7c3aed; }
+    .sub-pane { display: none; }
+    .sub-pane.active { display: block; }
+
     /* ---- Tab panes ---- */
     .tab-pane { display: none; padding: 24px 20px; }
     .tab-pane.active { display: block; }
 
-    /* ---- Charts ---- */
+    /* ---- Section headers ---- */
     .chart-section { margin-bottom: 36px; }
     .section-header {
       display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
     }
     .section-title { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .07em; }
-    .chart-wrap { position: relative; height: 520px; }
-    .chart-wrap.md  { height: 400px; }
-    .chart-wrap.sm  { height: 240px; }
+
+    /* ---- Charts (trend only now) ---- */
+    .chart-wrap { position: relative; }
+    .chart-wrap.sm { height: 240px; }
+
+    /* ---- Link list (URL tables) ---- */
+    .link-list { overflow-y: auto; max-height: 640px; }
+    .link-row {
+      display: grid;
+      grid-template-columns: 32px 1fr auto 100px;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 4px;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    .link-row:hover { background: #13132a; }
+    .link-rank { color: #4b5563; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    .link-url {
+      color: #818cf8; text-decoration: none; font-size: 13px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .link-url:hover { color: #a5b4fc; text-decoration: underline; }
+    .link-clicks { color: #9ca3af; font-size: 12px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+    .link-bar-wrap { height: 6px; background: #1e1e3a; border-radius: 3px; overflow: hidden; }
+    .link-bar { height: 100%; border-radius: 3px; }
+
+    /* ---- Domain table ---- */
+    .domain-cols { grid-template-columns: 32px 1fr 90px 70px 100px; }
+    .domain-header {
+      display: grid; align-items: center; gap: 12px; padding: 6px 4px 8px;
+      border-bottom: 2px solid #2a2a3e; margin-bottom: 2px;
+    }
+    .domain-header span { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; }
+    .sort-btn {
+      background: none; border: none; color: #6b7280; padding: 0; cursor: pointer;
+      font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+      font-weight: 500; text-align: right; white-space: nowrap;
+    }
+    .sort-btn:hover { color: #e2e8f0; }
+    .sort-btn.sort-active { color: #c4b5fd; }
+    .domain-row {
+      display: grid; align-items: center; gap: 12px;
+      padding: 9px 4px; border-bottom: 1px solid #1a1a2e; cursor: pointer;
+    }
+    .domain-row:hover { background: #13132a; }
+    .domain-name { color: #c4b5fd; font-size: 13px; font-weight: 500; }
+    .domain-num { color: #9ca3af; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
     /* ---- Controls ---- */
     .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -94,13 +152,16 @@
 
     /* ---- Mobile ---- */
     @media (max-width: 600px) {
-      .stat { padding: 10px 14px; }
-      .stat-value { font-size: 22px; }
+      .stat { padding: 8px 10px; }
+      .stat-value { font-size: 18px; }
       .stat-label { font-size: 9px; }
       .tab-pane { padding: 16px; }
-      .chart-wrap      { height: 360px; }
-      .chart-wrap.md   { height: 300px; }
-      .chart-wrap.sm   { height: 180px; }
+      .chart-wrap.sm { height: 180px; }
+      .link-row { grid-template-columns: 24px 1fr auto 60px; gap: 8px; }
+      .domain-cols { grid-template-columns: 24px 1fr 64px 48px 60px; }
+      .domain-row .link-bar-wrap { display: none; }
+      .domain-header .bar-spacer { display: none; }
+      .link-url { font-size: 12px; }
       input[type=search] { width: 100%; }
       header h1 { font-size: 14px; }
       #last-refreshed { display: none; }
@@ -117,15 +178,23 @@
 <div id="stats-bar">
   <div class="stat">
     <div class="stat-value" id="total-clicks">-</div>
-    <div class="stat-label">Total Clicks</div>
+    <div class="stat-label">All-Time Clicks</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value" id="total-links">-</div>
+    <div class="stat-label">All-Time Unique Links</div>
   </div>
   <div class="stat">
     <div class="stat-value" id="issues-sent">-</div>
-    <div class="stat-label">Issues Sent</div>
+    <div class="stat-label">All-Time Issues Sent</div>
   </div>
   <div class="stat">
     <div class="stat-value" id="avg-clicks">-</div>
-    <div class="stat-label">Avg / Issue</div>
+    <div class="stat-label">Avg Clicks / Issue</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value" id="avg-links">-</div>
+    <div class="stat-label">Avg Links / Issue</div>
   </div>
 </div>
 
@@ -141,11 +210,12 @@
     <div class="section-header">
       <span class="section-title">All Time Top Links</span>
     </div>
-    <div class="chart-wrap"><canvas id="alltime-chart"></canvas></div>
+    <div id="alltime-links" class="link-list"></div>
   </div>
   <div class="chart-section">
     <div class="section-header">
-      <span class="section-title">Click Trend - Last 10 Issues</span>
+      <span class="section-title">Click Trend — Last 10 Issues</span>
+      <span style="font-size:11px;color:#4b5563">Click a bar to open that issue</span>
     </div>
     <div class="chart-wrap sm"><canvas id="trend-chart"></canvas></div>
   </div>
@@ -162,20 +232,48 @@
     </div>
   </div>
   <div id="issue-placeholder" class="placeholder">Enter an issue number and click Go</div>
-  <div class="chart-wrap md" id="issue-chart-wrap" style="display:none">
-    <canvas id="issue-chart"></canvas>
-  </div>
+  <div id="issue-links" class="link-list" style="display:none"></div>
 </div>
 
 <!-- Domains -->
 <div id="tab-domains" class="tab-pane">
-  <div class="section-header" style="margin-bottom:20px">
-    <span class="section-title" id="domains-title">Top Domains</span>
-    <div class="controls">
-      <input type="search" id="domain-search" placeholder="Filter domains..." oninput="filterDomains()">
+  <nav class="sub-nav">
+    <button class="sub-btn active" data-subtab="top-domains"  onclick="switchSubTab('top-domains')">Top Domains</button>
+    <button class="sub-btn"        data-subtab="bottom-links" onclick="switchSubTab('bottom-links')">Bottom Links</button>
+  </nav>
+
+  <!-- Top Domains -->
+  <div id="subtab-top-domains" class="sub-pane active">
+    <div class="section-header" style="margin-bottom:20px">
+      <span class="section-title" id="domains-title">Domains (100+ clicks)</span>
+      <div class="controls">
+        <input type="search" id="domain-search" placeholder="Filter domains..." oninput="filterDomains()">
+      </div>
+    </div>
+    <div class="domain-header domain-cols">
+      <span></span>
+      <span>Domain</span>
+      <button id="sort-btn-clicks" class="sort-btn sort-active domain-num" onclick="setSortCol('clicks')">Clicks ↓</button>
+      <button id="sort-btn-links"  class="sort-btn domain-num"             onclick="setSortCol('links')">Links</button>
+      <span class="bar-spacer"></span>
+    </div>
+    <div id="domain-table" class="link-list"></div>
+    <div id="domain-drilldown" style="display:none">
+      <div class="section-header" style="margin-top:28px;margin-bottom:14px">
+        <span class="section-title" id="drilldown-title"></span>
+        <button class="muted" onclick="closeDrilldown()">Back to Domains</button>
+      </div>
+      <div id="drilldown-links" class="link-list"></div>
     </div>
   </div>
-  <div class="chart-wrap"><canvas id="domains-chart"></canvas></div>
+
+  <!-- Bottom Links -->
+  <div id="subtab-bottom-links" class="sub-pane">
+    <div class="section-header" style="margin-bottom:20px">
+      <span class="section-title" id="bottom-links-title">Bottom 100 Links</span>
+    </div>
+    <div id="bottom-links-list" class="link-list"></div>
+  </div>
 </div>
 
 <!-- PDF modal -->
@@ -192,70 +290,123 @@
 </div>
 
 <script>
-  let alltimeChart = null, issueChart = null, trendChart = null, domainsChart = null;
-  let currentIssue = null;
-  let allDomains   = [];
+  let trendChart     = null;
+  let currentIssue   = null;
+  let allDomains     = [];
+  let bottomLoaded   = false;
+  let trendIssues    = [];
+  let domainSort     = { col: 'clicks', dir: 'desc' };
 
-  const GRID  = '#1e1e3a';
-  const TICK  = '#9ca3af';
-  const BASE  = { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+  const GRID = '#1e1e3a';
+  const TICK = '#9ca3af';
+  const BASE = { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } } };
 
-  // Human-readable number: 1234 -> "1.2k"
   function fmtNum(n) {
     if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k';
     return String(n);
   }
 
-  // Clean URL label: strip scheme and www, truncate so total length <= 32 chars
-  function formatURL(raw) {
-    try {
-      const u    = new URL(raw);
-      const host = u.hostname.replace(/^www\./, '');
-      let   path = u.pathname;
-      const max  = Math.max(1, 32 - host.length);
-      if (path.length > max) path = path.slice(0, max - 1) + '…';
-      return host + path;
-    } catch {
-      return raw.replace(/^https?:\/\//, '').slice(0, 32);
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function displayURL(raw) {
+    return raw.replace(/^https?:\/\//, '').replace(/^www\./, '');
+  }
+
+  function renderLinkTable(containerId, links, barColor) {
+    const container = document.getElementById(containerId);
+    if (!links || !links.length) { container.innerHTML = ''; return; }
+    const max = Math.max(...links.map(l => l.clicks));
+    container.innerHTML = links.map((l, i) => {
+      const pct = max > 0 ? (l.clicks / max * 100).toFixed(1) : 0;
+      return `<div class="link-row">
+        <span class="link-rank">${i + 1}</span>
+        <a class="link-url" href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escHtml(displayURL(l.url))}</a>
+        <span class="link-clicks">${l.clicks.toLocaleString()}</span>
+        <div class="link-bar-wrap"><div class="link-bar" style="width:${pct}%;background:${barColor}"></div></div>
+      </div>`;
+    }).join('');
+  }
+
+  function setSortCol(col) {
+    if (domainSort.col === col) {
+      domainSort.dir = domainSort.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+      domainSort.col = col;
+      domainSort.dir = 'desc';
     }
+    refreshDomainTable();
   }
 
-  // Shared options for horizontal bar charts
-  function hBarOpts(fullLabels) {
-    return {
-      ...BASE,
-      indexAxis: 'y',
-      scales: {
-        x: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
-        y: { grid: { display: false }, ticks: { color: TICK, font: { size: 11 } } },
-      },
-      plugins: {
-        ...BASE.plugins,
-        tooltip: { callbacks: {
-          title:  (items) => fullLabels[items[0].dataIndex],
-          label:  (ctx)   => '  ' + ctx.parsed.x.toLocaleString() + ' clicks',
-        }},
-      },
-    };
-  }
-
-  function renderHBar(canvasId, labels, data, color, fullLabels, existing) {
-    if (existing) existing.destroy();
-    if (!data || !data.length) return null;
-    return new Chart(document.getElementById(canvasId), {
-      type: 'bar',
-      data: { labels, datasets: [{ data, backgroundColor: color, borderRadius: 3 }] },
-      options: hBarOpts(fullLabels),
+  function updateSortHeaders() {
+    ['clicks', 'links'].forEach(col => {
+      const btn = document.getElementById('sort-btn-' + col);
+      if (!btn) return;
+      const label = col === 'clicks' ? 'Clicks' : 'Links';
+      const arrow = domainSort.col === col ? (domainSort.dir === 'desc' ? ' ↓' : ' ↑') : '';
+      btn.textContent = label + arrow;
+      btn.classList.toggle('sort-active', domainSort.col === col);
     });
   }
 
-  // --- Tab switching ---
+  function refreshDomainTable() {
+    const q        = document.getElementById('domain-search').value.toLowerCase().trim();
+    const filtered = q ? allDomains.filter(d => d.domain.includes(q)) : [...allDomains];
+    filtered.sort((a, b) => {
+      const va = domainSort.col === 'clicks' ? a.clicks : a.links;
+      const vb = domainSort.col === 'clicks' ? b.clicks : b.links;
+      if (va !== vb) return domainSort.dir === 'desc' ? vb - va : va - vb;
+      return a.domain.localeCompare(b.domain);
+    });
+    const count = q
+      ? filtered.length + ' domain' + (filtered.length !== 1 ? 's' : '') + ' matching "' + q + '"'
+      : allDomains.length + ' domain' + (allDomains.length !== 1 ? 's' : '') + ' with 100+ clicks';
+    document.getElementById('domains-title').textContent = count;
+    updateSortHeaders();
+    renderDomainTable(filtered);
+  }
+
+  function renderDomainTable(domains) {
+    closeDrilldown();
+    const container = document.getElementById('domain-table');
+    if (!domains.length) {
+      container.innerHTML = '<div class="placeholder">No domains with 100+ clicks</div>';
+      return;
+    }
+    const barCol = domainSort.col;
+    const max    = Math.max(...domains.map(d => barCol === 'clicks' ? d.clicks : d.links));
+    container.innerHTML = domains.map((d, i) => {
+      const barVal = barCol === 'clicks' ? d.clicks : d.links;
+      const pct    = max > 0 ? (barVal / max * 100).toFixed(1) : 0;
+      return `<div class="domain-row domain-cols" data-domain="${escHtml(d.domain)}">
+        <span class="link-rank">${i + 1}</span>
+        <span class="domain-name">${escHtml(d.domain)}</span>
+        <span class="domain-num">${d.clicks.toLocaleString()}</span>
+        <span class="domain-num">${d.links.toLocaleString()}</span>
+        <div class="link-bar-wrap"><div class="link-bar" style="width:${pct}%;background:#7c3aed"></div></div>
+      </div>`;
+    }).join('');
+    container.querySelectorAll('.domain-row').forEach(row => {
+      row.addEventListener('click', () => drillDomain(row.dataset.domain));
+    });
+  }
+
+  // --- Tab / sub-tab switching ---
   function switchTab(name) {
     document.querySelectorAll('.nav-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('.tab-pane').forEach(p =>
       p.classList.toggle('active', p.id === 'tab-' + name));
     if (name === 'domains' && allDomains.length === 0) loadDomains();
+  }
+
+  function switchSubTab(name) {
+    document.querySelectorAll('.sub-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.subtab === name));
+    document.querySelectorAll('.sub-pane').forEach(p =>
+      p.classList.toggle('active', p.id === 'subtab-' + name));
+    if (name === 'bottom-links' && !bottomLoaded) loadBottomLinks();
   }
 
   // --- Data loaders ---
@@ -276,15 +427,13 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       document.getElementById('total-clicks').textContent = d.total_clicks.toLocaleString();
+      document.getElementById('total-links').textContent  = d.total_links.toLocaleString();
       document.getElementById('issues-sent').textContent  = d.issues_sent.toLocaleString();
       document.getElementById('avg-clicks').textContent   = d.avg_clicks_per_issue.toLocaleString();
+      document.getElementById('avg-links').textContent    = d.avg_links_per_issue.toLocaleString();
       document.getElementById('last-refreshed').textContent =
         'Refreshed ' + new Date().toLocaleTimeString();
-      const labels = d.top_links.map(l => formatURL(l.url));
-      alltimeChart  = renderHBar(
-        'alltime-chart', labels, d.top_links.map(l => l.clicks),
-        '#059669', d.top_links.map(l => l.url), alltimeChart
-      );
+      renderLinkTable('alltime-links', d.top_links, '#059669');
     } catch (err) {
       console.error('loadAllTime:', err);
       document.getElementById('last-refreshed').textContent = 'Error loading stats';
@@ -295,36 +444,73 @@
     try {
       const r = await fetch('/api/issues');
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d   = await r.json();
-      const issues = d.issues.slice().sort((a, b) => a.number - b.number);
-      if (trendChart) trendChart.destroy();
-      trendChart = new Chart(document.getElementById('trend-chart'), {
-        type: 'bar',
-        data: {
-          labels: issues.map(i => '#' + i.number),
-          datasets: [{
-            data: issues.map(i => i.total_clicks),
-            backgroundColor: issues.map(i =>
+      const d = await r.json();
+      trendIssues = d.issues.slice().sort((a, b) => a.number - b.number);
+      renderTrend();
+    } catch (err) { console.error('loadTrend:', err); }
+  }
+
+  function renderTrend() {
+    if (!trendIssues.length) return;
+    if (trendChart) trendChart.destroy();
+
+    const clicks = trendIssues.map(i => i.total_clicks);
+    const avg    = clicks.reduce((s, c) => s + c, 0) / clicks.length;
+
+    trendChart = new Chart(document.getElementById('trend-chart'), {
+      type: 'bar',
+      data: {
+        labels: trendIssues.map(i => '#' + i.number),
+        datasets: [
+          {
+            type: 'bar',
+            data: clicks,
+            backgroundColor: trendIssues.map(i =>
               currentIssue && i.number === parseInt(currentIssue) ? '#818cf8' : '#4f46e5'
             ),
             borderRadius: 3,
-          }],
-        },
-        options: {
-          ...BASE,
-          scales: {
-            x: { grid: { display: false }, ticks: { color: TICK } },
-            y: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
+            order: 2,
           },
-          plugins: {
-            ...BASE.plugins,
-            tooltip: { callbacks: {
-              label: (ctx) => '  ' + ctx.parsed.y.toLocaleString() + ' clicks',
-            }},
+          {
+            type: 'line',
+            data: clicks.map(() => avg),
+            borderColor: '#f59e0b',
+            borderWidth: 1.5,
+            borderDash: [4, 4],
+            pointRadius: 0,
+            tension: 0,
+            order: 1,
           },
+        ],
+      },
+      options: {
+        ...BASE,
+        scales: {
+          x: { grid: { display: false }, ticks: { color: TICK } },
+          y: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
         },
-      });
-    } catch (err) { console.error('loadTrend:', err); }
+        plugins: {
+          ...BASE.plugins,
+          tooltip: { callbacks: {
+            label: (ctx) => ctx.datasetIndex === 1
+              ? '  avg: ' + Math.round(avg).toLocaleString()
+              : '  ' + ctx.parsed.y.toLocaleString() + ' clicks',
+          }},
+        },
+        onClick: (_evt, elements) => {
+          const el = elements.find(e => e.datasetIndex === 0);
+          if (!el) return;
+          const issue = trendIssues[el.index];
+          document.getElementById('issue-input').value = issue.number;
+          switchTab('issues');
+          loadIssue();
+        },
+        onHover: (evt, elements) => {
+          const hit = elements.some(e => e.datasetIndex === 0);
+          evt.native.target.style.cursor = hit ? 'pointer' : 'default';
+        },
+      },
+    });
   }
 
   async function loadIssue() {
@@ -334,21 +520,17 @@
       const r = await fetch('/api/stats/issue/' + n);
       if (!r.ok) {
         const ph = document.getElementById('issue-placeholder');
-        ph.textContent  = r.status === 404 ? 'Issue #' + n + ' not found.' : 'Error loading issue.';
+        ph.textContent   = r.status === 404 ? 'Issue #' + n + ' not found.' : 'Error loading issue.';
         ph.style.display = 'block';
-        document.getElementById('issue-chart-wrap').style.display = 'none';
+        document.getElementById('issue-links').style.display = 'none';
         return;
       }
       const d = await r.json();
       currentIssue = n;
-      document.getElementById('issue-placeholder').style.display  = 'none';
-      document.getElementById('issue-chart-wrap').style.display   = 'block';
-      const labels = d.links.map(l => formatURL(l.url));
-      issueChart   = renderHBar(
-        'issue-chart', labels, d.links.map(l => l.clicks),
-        '#4f46e5', d.links.map(l => l.url), issueChart
-      );
-      loadTrend();
+      document.getElementById('issue-placeholder').style.display = 'none';
+      document.getElementById('issue-links').style.display = 'block';
+      renderLinkTable('issue-links', d.links, '#4f46e5');
+      renderTrend(); // re-render to highlight selected issue
     } catch (err) { console.error('loadIssue:', err); }
   }
 
@@ -356,51 +538,44 @@
     try {
       const r = await fetch('/api/domains');
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d   = await r.json();
-      allDomains  = d.domains;
-      renderDomains(allDomains.slice(0, 20));
+      const d = await r.json();
+      allDomains = d.domains;
+      refreshDomainTable();
     } catch (err) { console.error('loadDomains:', err); }
   }
 
   function filterDomains() {
-    const q        = document.getElementById('domain-search').value.toLowerCase().trim();
-    const filtered = q ? allDomains.filter(d => d.domain.includes(q)) : allDomains;
-    const shown    = filtered.slice(0, 20);
-    renderDomains(shown);
-    document.getElementById('domains-title').textContent = q
-      ? filtered.length + ' domain' + (filtered.length !== 1 ? 's' : '') + ' matching "' + q + '"'
-      : 'Top Domains';
+    refreshDomainTable();
   }
 
-  function renderDomains(domains) {
-    if (domainsChart) domainsChart.destroy();
-    if (!domains.length) { domainsChart = null; return; }
-    const links = domains.map(d => d.links);
-    domainsChart = new Chart(document.getElementById('domains-chart'), {
-      type: 'bar',
-      data: {
-        labels: domains.map(d => d.domain),
-        datasets: [{ data: domains.map(d => d.clicks), backgroundColor: '#7c3aed', borderRadius: 3 }],
-      },
-      options: {
-        ...BASE,
-        indexAxis: 'y',
-        scales: {
-          x: { grid: { color: GRID }, ticks: { color: TICK, callback: fmtNum } },
-          y: { grid: { display: false }, ticks: { color: TICK, font: { size: 12 } } },
-        },
-        plugins: {
-          ...BASE.plugins,
-          tooltip: { callbacks: {
-            title: (items) => domains[items[0].dataIndex].domain,
-            label: (ctx)   => [
-              '  ' + ctx.parsed.x.toLocaleString() + ' clicks',
-              '  ' + links[ctx.dataIndex] + ' unique link' + (links[ctx.dataIndex] !== 1 ? 's' : ''),
-            ],
-          }},
-        },
-      },
-    });
+  async function loadBottomLinks() {
+    bottomLoaded = true;
+    try {
+      const r = await fetch('/api/links/bottom');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      document.getElementById('bottom-links-title').textContent =
+        'Bottom ' + d.links.length + ' Links (Fewest Clicks)';
+      renderLinkTable('bottom-links-list', d.links, '#d97706');
+    } catch (err) { console.error('loadBottomLinks:', err); }
+  }
+
+  async function drillDomain(domain) {
+    try {
+      const r = await fetch('/api/domains/' + encodeURIComponent(domain));
+      if (!r.ok) return;
+      const d = await r.json();
+      document.getElementById('drilldown-title').textContent =
+        domain + ' — ' + d.links.length + ' unique link' + (d.links.length !== 1 ? 's' : '');
+      renderLinkTable('drilldown-links', d.links, '#7c3aed');
+      const panel = document.getElementById('domain-drilldown');
+      panel.style.display = 'block';
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) { console.error('drillDomain:', err); }
+  }
+
+  function closeDrilldown() {
+    document.getElementById('domain-drilldown').style.display = 'none';
   }
 
   // --- PDF modal ---
