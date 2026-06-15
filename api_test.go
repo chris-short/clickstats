@@ -191,7 +191,7 @@ func TestHandleDomains(t *testing.T) {
 	}
 }
 
-func TestHandleBottomLinks(t *testing.T) {
+func TestHandleBottomDomains(t *testing.T) {
 	results := append(
 		fakeEvents("https://popular.com/page", 50),
 		fakeEvents("https://unpopular.com/page", 1)...,
@@ -202,24 +202,24 @@ func TestHandleBottomLinks(t *testing.T) {
 	defer cleanup()
 
 	s := newServer("key", "Test")
-	req := httptest.NewRequest("GET", "/api/links/bottom", nil)
+	req := httptest.NewRequest("GET", "/api/domains/bottom", nil)
 	w := httptest.NewRecorder()
 	s.mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("got %d want 200", w.Code)
 	}
-	var resp linksResponse
+	var resp domainsResponse
 	json.NewDecoder(w.Body).Decode(&resp)
-	if len(resp.Links) != 2 {
-		t.Errorf("Links len: got %d want 2", len(resp.Links))
+	if len(resp.Domains) != 2 {
+		t.Errorf("Domains len: got %d want 2", len(resp.Domains))
 	}
 	// sorted ascending: unpopular first
-	if resp.Links[0].URL != "https://unpopular.com/page" {
-		t.Errorf("Links[0].URL: got %q want unpopular", resp.Links[0].URL)
+	if resp.Domains[0].Domain != "unpopular.com" {
+		t.Errorf("Domains[0].Domain: got %q want \"unpopular.com\"", resp.Domains[0].Domain)
 	}
-	if resp.Links[0].Clicks != 1 {
-		t.Errorf("Links[0].Clicks: got %d want 1", resp.Links[0].Clicks)
+	if resp.Domains[0].Clicks != 1 {
+		t.Errorf("Domains[0].Clicks: got %d want 1", resp.Domains[0].Clicks)
 	}
 }
 

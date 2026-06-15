@@ -238,8 +238,8 @@
 <!-- Domains -->
 <div id="tab-domains" class="tab-pane">
   <nav class="sub-nav">
-    <button class="sub-btn active" data-subtab="top-domains"  onclick="switchSubTab('top-domains')">Top Domains</button>
-    <button class="sub-btn"        data-subtab="bottom-links" onclick="switchSubTab('bottom-links')">Bottom Links</button>
+    <button class="sub-btn active" data-subtab="top-domains"    onclick="switchSubTab('top-domains')">Top Domains</button>
+    <button class="sub-btn"        data-subtab="bottom-domains" onclick="switchSubTab('bottom-domains')">Bottom Domains</button>
   </nav>
 
   <!-- Top Domains -->
@@ -267,15 +267,22 @@
     </div>
   </div>
 
-  <!-- Bottom Links -->
-  <div id="subtab-bottom-links" class="sub-pane">
+  <!-- Bottom Domains -->
+  <div id="subtab-bottom-domains" class="sub-pane">
     <div class="section-header" style="margin-bottom:20px">
-      <span class="section-title" id="bottom-links-title">Bottom 100 Links</span>
+      <span class="section-title" id="bottom-domains-title">Bottom Domains</span>
       <div class="controls">
-        <input type="search" id="bottom-search" placeholder="Filter links..." oninput="filterBottomLinks()">
+        <input type="search" id="bottom-domain-search" placeholder="Filter domains..." oninput="filterBottomDomains()">
       </div>
     </div>
-    <div id="bottom-links-list" class="link-list"></div>
+    <div class="domain-header domain-cols">
+      <span></span>
+      <span>Domain</span>
+      <span style="text-align:right;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Clicks</span>
+      <span style="text-align:right;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Links</span>
+      <span></span>
+    </div>
+    <div id="bottom-domain-table"></div>
   </div>
 </div>
 
@@ -296,7 +303,7 @@
   let trendChart     = null;
   let currentIssue   = null;
   let allDomains     = [];
-  let allBottomLinks = [];
+  let allBottomDomains = [];
   let bottomLoaded   = false;
   let trendIssues    = [];
   let domainSort     = { col: 'clicks', dir: 'desc' };
@@ -410,7 +417,7 @@
       b.classList.toggle('active', b.dataset.subtab === name));
     document.querySelectorAll('.sub-pane').forEach(p =>
       p.classList.toggle('active', p.id === 'subtab-' + name));
-    if (name === 'bottom-links' && !bottomLoaded) loadBottomLinks();
+    if (name === 'bottom-domains' && !bottomLoaded) loadBottomDomains();
   }
 
   // --- Data loaders ---
@@ -552,25 +559,44 @@
     refreshDomainTable();
   }
 
-  async function loadBottomLinks() {
+  async function loadBottomDomains() {
     bottomLoaded = true;
     try {
-      const r = await fetch('/api/links/bottom');
+      const r = await fetch('/api/domains/bottom');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      allBottomLinks = d.links;
-      filterBottomLinks();
-    } catch (err) { console.error('loadBottomLinks:', err); }
+      allBottomDomains = d.domains;
+      filterBottomDomains();
+    } catch (err) { console.error('loadBottomDomains:', err); }
   }
 
-  function filterBottomLinks() {
-    const q        = document.getElementById('bottom-search').value.toLowerCase().trim();
-    const filtered = q ? allBottomLinks.filter(l => displayURL(l.url).includes(q)) : allBottomLinks;
+  function filterBottomDomains() {
+    const q        = document.getElementById('bottom-domain-search').value.toLowerCase().trim();
+    const filtered = q ? allBottomDomains.filter(d => d.domain.includes(q)) : allBottomDomains;
     const title    = q
-      ? filtered.length + ' link' + (filtered.length !== 1 ? 's' : '') + ' matching "' + q + '"'
-      : 'Bottom ' + allBottomLinks.length + ' Links (Fewest Clicks)';
-    document.getElementById('bottom-links-title').textContent = title;
-    renderLinkTable('bottom-links-list', filtered, '#d97706');
+      ? filtered.length + ' domain' + (filtered.length !== 1 ? 's' : '') + ' matching "' + q + '"'
+      : 'Bottom ' + allBottomDomains.length + ' Domains (Fewest Clicks)';
+    document.getElementById('bottom-domains-title').textContent = title;
+    renderBottomDomainTable(filtered);
+  }
+
+  function renderBottomDomainTable(domains) {
+    const container = document.getElementById('bottom-domain-table');
+    if (!domains.length) {
+      container.innerHTML = '<div class="placeholder">No data</div>';
+      return;
+    }
+    const maxClicks = Math.max(...domains.map(d => d.clicks));
+    container.innerHTML = domains.map((d, i) => {
+      const pct = maxClicks > 0 ? (d.clicks / maxClicks * 100).toFixed(1) : 0;
+      return `<div class="domain-row domain-cols">
+        <span class="link-rank">${i + 1}</span>
+        <span class="domain-name">${escHtml(d.domain)}</span>
+        <span class="domain-num">${d.clicks.toLocaleString()}</span>
+        <span class="domain-num">${d.links.toLocaleString()}</span>
+        <div class="link-bar-wrap"><div class="link-bar" style="width:${pct}%;background:#dc2626"></div></div>
+      </div>`;
+    }).join('');
   }
 
   async function drillDomain(domain) {

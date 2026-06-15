@@ -62,10 +62,6 @@ type domainLinksResponse struct {
 	Links  []linkCount `json:"links"`
 }
 
-type linksResponse struct {
-	Links []linkCount `json:"links"`
-}
-
 // --- Helpers ---
 
 func sortedLinks(counts map[string]int, limit int) []linkCount {
@@ -371,8 +367,8 @@ func (s *server) handleDomains(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-func (s *server) handleBottomLinks(w http.ResponseWriter, r *http.Request) {
-	const cacheKey = "bottom_links"
+func (s *server) handleBottomDomains(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "bottom_domains"
 	if v, ok := s.cache.get(cacheKey); ok {
 		writeJSON(w, v)
 		return
@@ -382,23 +378,30 @@ func (s *server) handleBottomLinks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	links := make([]linkCount, 0, len(counts))
+	domainClicks := map[string]int{}
+	domainLinks := map[string]int{}
 	for u, c := range counts {
-		if s.isExcluded(u) {
+		d := extractDomain(u)
+		if d == "" || s.excludeDomains[d] {
 			continue
 		}
-		links = append(links, linkCount{URL: u, Clicks: c})
+		domainClicks[d] += c
+		domainLinks[d]++
 	}
-	sort.Slice(links, func(i, j int) bool {
-		if links[i].Clicks != links[j].Clicks {
-			return links[i].Clicks < links[j].Clicks
+	domains := make([]domainCount, 0, len(domainClicks))
+	for d, c := range domainClicks {
+		domains = append(domains, domainCount{Domain: d, Clicks: c, Links: domainLinks[d]})
+	}
+	sort.Slice(domains, func(i, j int) bool {
+		if domains[i].Clicks != domains[j].Clicks {
+			return domains[i].Clicks < domains[j].Clicks
 		}
-		return links[i].URL < links[j].URL
+		return domains[i].Domain < domains[j].Domain
 	})
-	if len(links) > 100 {
-		links = links[:100]
+	if len(domains) > 50 {
+		domains = domains[:50]
 	}
-	resp := linksResponse{Links: links}
+	resp := domainsResponse{Domains: domains}
 	s.cache.set(cacheKey, resp)
 	writeJSON(w, resp)
 }
