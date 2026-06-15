@@ -451,7 +451,7 @@ func (s *server) handleIssueStats(w http.ResponseWriter, r *http.Request) {
 		Subject:     subject,
 		EmailID:     emailID,
 		TotalClicks: sumCounts(counts),
-		Links:       sortedLinks(counts, 20),
+		Links:       sortedLinks(counts, 0),
 	}
 	s.cache.set(cacheKey, resp)
 	writeJSON(w, resp)
