@@ -62,6 +62,18 @@ type domainLinksResponse struct {
 	Links  []linkCount `json:"links"`
 }
 
+type trendsDataPoint struct {
+	Issue     int     `json:"issue"`
+	Subject   string  `json:"subject"`
+	Date      string  `json:"date"`
+	OpenRate  float64 `json:"open_rate"`
+	ClickRate float64 `json:"click_rate"`
+}
+
+type trendsResponse struct {
+	Points []trendsDataPoint `json:"points"`
+}
+
 // --- Helpers ---
 
 func sortedLinks(counts map[string]int, limit int) []linkCount {
@@ -139,6 +151,28 @@ func (s *server) cachedAllClicks() (map[string]int, error) {
 		s.disk.setAllClicks(counts)
 	}
 	return counts, nil
+}
+
+func (s *server) cachedEmailAnalytics(emailID string) (analytics, error) {
+	memKey := "analytics:" + emailID
+	if v, ok := s.cache.get(memKey); ok {
+		return v.(analytics), nil
+	}
+	if s.disk != nil {
+		if a, ok := s.disk.getAnalytics(emailID); ok {
+			s.cache.set(memKey, a)
+			return a, nil
+		}
+	}
+	a, err := fetchEmailAnalytics(s.apiKey, emailID)
+	if err != nil {
+		return analytics{}, err
+	}
+	s.cache.set(memKey, a)
+	if s.disk != nil {
+		s.disk.setAnalytics(emailID, a)
+	}
+	return a, nil
 }
 
 // cachedClicksForEmail returns click counts for a single email, checking
@@ -363,6 +397,66 @@ func (s *server) handleDomains(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.cache.set(cacheKey, resp)
+	writeJSON(w, resp)
+}
+
+func (s *server) handleTrends(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "trends"
+	if v, ok := s.cache.get(cacheKey); ok {
+		writeJSON(w, v)
+		return
+	}
+	emails, err := fetchAllNewsletterEmails(s.apiKey)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var newsletters []email
+	for _, e := range emails {
+		if issueNumberFromSubject(e.Subject) > 0 {
+			newsletters = append(newsletters, e)
+		}
+	}
+
+	type result struct {
+		point trendsDataPoint
+		ok    bool
+	}
+	results := make([]result, len(newsletters))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+	for i, e := range newsletters {
+		wg.Add(1)
+		go func(i int, e email) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			a, err := s.cachedEmailAnalytics(e.ID)
+			if err != nil {
+				return
+			}
+			results[i] = result{ok: true, point: trendsDataPoint{
+				Issue:     issueNumberFromSubject(e.Subject),
+				Subject:   e.Subject,
+				Date:      e.PublishDate,
+				OpenRate:  a.OpenRate,
+				ClickRate: a.ClickRate,
+			}}
+		}(i, e)
+	}
+	wg.Wait()
+
+	points := make([]trendsDataPoint, 0, len(results))
+	for _, r := range results {
+		if r.ok && r.point.Issue > 0 {
+			points = append(points, r.point)
+		}
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Issue < points[j].Issue
+	})
+	resp := trendsResponse{Points: points}
 	s.cache.set(cacheKey, resp)
 	writeJSON(w, resp)
 }

@@ -258,6 +258,43 @@ func TestHandleDomainLinks(t *testing.T) {
 	}
 }
 
+func TestHandleTrends(t *testing.T) {
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/emails":
+			json.NewEncoder(w).Encode(emailsPage{
+				Results: []email{
+					{ID: "id-1", Subject: "DevOps'ish 321", PublishDate: "2024-01-08"},
+					{ID: "id-2", Subject: "DevOps'ish 322", PublishDate: "2024-01-15"},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/analytics"):
+			json.NewEncoder(w).Encode(analytics{Recipients: 1000, Opens: 450, Clicks: 120})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	req := httptest.NewRequest("GET", "/api/trends", nil)
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d want 200", w.Code)
+	}
+	var resp trendsResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Points) != 2 {
+		t.Errorf("Points len: got %d want 2", len(resp.Points))
+	}
+	if resp.Points[0].Issue != 321 {
+		t.Errorf("Points[0].Issue: got %d want 321", resp.Points[0].Issue)
+	}
+	if resp.Points[0].OpenRate != 45.0 {
+		t.Errorf("Points[0].OpenRate: got %f want 45.0", resp.Points[0].OpenRate)
+	}
+}
+
 func TestHandlePrintNoSponsor(t *testing.T) {
 	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

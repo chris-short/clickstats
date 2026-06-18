@@ -12,6 +12,7 @@ import (
 const (
 	allClicksTTL   = time.Hour
 	issueClicksTTL = 7 * 24 * time.Hour
+	analyticsTTL   = 30 * 24 * time.Hour
 )
 
 type issueEntry struct {
@@ -19,10 +20,16 @@ type issueEntry struct {
 	Saved  time.Time      `json:"s"`
 }
 
+type analyticsEntry struct {
+	A     analytics `json:"a"`
+	Saved time.Time `json:"s"`
+}
+
 type diskData struct {
-	AllClicks   map[string]int        `json:"ac,omitempty"`
-	AllSaved    time.Time             `json:"as,omitempty"`
-	IssueClicks map[string]issueEntry `json:"ic,omitempty"`
+	AllClicks   map[string]int              `json:"ac,omitempty"`
+	AllSaved    time.Time                   `json:"as,omitempty"`
+	IssueClicks map[string]issueEntry       `json:"ic,omitempty"`
+	Analytics   map[string]analyticsEntry   `json:"an,omitempty"`
 }
 
 type diskCache struct {
@@ -37,6 +44,7 @@ func newDiskCache(dir string) *diskCache {
 		d: diskData{
 			AllClicks:   map[string]int{},
 			IssueClicks: map[string]issueEntry{},
+			Analytics:   map[string]analyticsEntry{},
 		},
 	}
 	if err := dc.load(); err != nil {
@@ -63,6 +71,9 @@ func (dc *diskCache) load() error {
 	}
 	if d.IssueClicks == nil {
 		d.IssueClicks = map[string]issueEntry{}
+	}
+	if d.Analytics == nil {
+		d.Analytics = map[string]analyticsEntry{}
 	}
 	dc.d = d
 	return nil
@@ -121,5 +132,25 @@ func (dc *diskCache) setIssueClicks(emailID string, counts map[string]int) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	dc.d.IssueClicks[emailID] = issueEntry{Clicks: counts, Saved: time.Now()}
+	dc.persistLocked()
+}
+
+func (dc *diskCache) getAnalytics(emailID string) (analytics, bool) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	e, ok := dc.d.Analytics[emailID]
+	if !ok || time.Since(e.Saved) > analyticsTTL {
+		return analytics{}, false
+	}
+	return e.A, true
+}
+
+func (dc *diskCache) setAnalytics(emailID string, a analytics) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	if dc.d.Analytics == nil {
+		dc.d.Analytics = map[string]analyticsEntry{}
+	}
+	dc.d.Analytics[emailID] = analyticsEntry{A: a, Saved: time.Now()}
 	dc.persistLocked()
 }

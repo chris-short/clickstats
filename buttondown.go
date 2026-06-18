@@ -23,17 +23,23 @@ type eventsPage struct {
 }
 
 type email struct {
-	ID      string `json:"id"`
-	Subject string `json:"subject"`
+	ID          string `json:"id"`
+	Subject     string `json:"subject"`
+	PublishDate string `json:"publish_date"`
 }
 
 type emailsPage struct {
 	Results []email `json:"results"`
 	Count   int     `json:"count"`
+	Next    *string `json:"next"`
 }
 
 type analytics struct {
-	Recipients int `json:"recipients"`
+	Recipients int     `json:"recipients"`
+	Opens      int     `json:"opens"`
+	Clicks     int     `json:"clicks"`
+	OpenRate   float64 `json:"open_rate"`
+	ClickRate  float64 `json:"click_rate"`
 }
 
 func fetchPage(apiKey, url string) (*eventsPage, error) {
@@ -163,26 +169,81 @@ func fetchEmailCount(apiKey string) (int, error) {
 	return p.Count, nil
 }
 
-func fetchRecipientCount(apiKey, emailID string) (int, error) {
+func fetchEmailAnalytics(apiKey, emailID string) (analytics, error) {
 	url := fmt.Sprintf("%s/emails/%s/analytics", buttondownBase, emailID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return 0, err
+		return analytics{}, err
 	}
 	req.Header.Set("Authorization", "Token "+apiKey)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, err
+		return analytics{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("API returned %s", resp.Status)
+		return analytics{}, fmt.Errorf("API returned %s", resp.Status)
 	}
 	var a analytics
 	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
+		return analytics{}, err
+	}
+	// Compute rates from counts when Buttondown doesn't return them directly.
+	if a.OpenRate == 0 && a.Opens > 0 && a.Recipients > 0 {
+		a.OpenRate = float64(a.Opens) / float64(a.Recipients) * 100
+	}
+	if a.ClickRate == 0 && a.Clicks > 0 && a.Recipients > 0 {
+		a.ClickRate = float64(a.Clicks) / float64(a.Recipients) * 100
+	}
+	// If API returns rates as decimals (0.0-1.0), convert to percentages.
+	if a.OpenRate > 0 && a.OpenRate <= 1 {
+		a.OpenRate *= 100
+	}
+	if a.ClickRate > 0 && a.ClickRate <= 1 {
+		a.ClickRate *= 100
+	}
+	return a, nil
+}
+
+func fetchRecipientCount(apiKey, emailID string) (int, error) {
+	a, err := fetchEmailAnalytics(apiKey, emailID)
+	if err != nil {
 		return 0, err
 	}
 	return a.Recipients, nil
+}
+
+// fetchAllNewsletterEmails paginates through all sent emails in chronological order.
+func fetchAllNewsletterEmails(apiKey string) ([]email, error) {
+	var all []email
+	nextURL := fmt.Sprintf("%s/emails?status=sent&excluded_fields=body&page_size=100&ordering=creation_date", buttondownBase)
+	for nextURL != "" {
+		req, err := http.NewRequest("GET", nextURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Token "+apiKey)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("API returned %s", resp.Status)
+		}
+		var p emailsPage
+		err = json.NewDecoder(resp.Body).Decode(&p)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, p.Results...)
+		if p.Next == nil || len(p.Results) == 0 {
+			break
+		}
+		nextURL = *p.Next
+	}
+	return all, nil
 }
 
 var issueNumRe = regexp.MustCompile(`(\d+)(?:\s*:|$)`)
