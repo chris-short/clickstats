@@ -35,7 +35,7 @@ type emailsPage struct {
 }
 
 type analytics struct {
-	Recipients int     `json:"recipients"`
+	Deliveries int     `json:"deliveries"`
 	Opens      int     `json:"opens"`
 	Clicks     int     `json:"clicks"`
 	OpenRate   float64 `json:"open_rate"`
@@ -188,12 +188,13 @@ func fetchEmailAnalytics(apiKey, emailID string) (analytics, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
 		return analytics{}, err
 	}
-	// Compute rates from counts when Buttondown doesn't return them directly.
-	if a.OpenRate == 0 && a.Opens > 0 && a.Recipients > 0 {
-		a.OpenRate = float64(a.Opens) / float64(a.Recipients) * 100
+	// Buttondown returns deliveries (not recipients) as the denominator.
+	// Compute rates from counts when the API doesn't return them directly.
+	if a.OpenRate == 0 && a.Opens > 0 && a.Deliveries > 0 {
+		a.OpenRate = float64(a.Opens) / float64(a.Deliveries) * 100
 	}
-	if a.ClickRate == 0 && a.Clicks > 0 && a.Recipients > 0 {
-		a.ClickRate = float64(a.Clicks) / float64(a.Recipients) * 100
+	if a.ClickRate == 0 && a.Clicks > 0 && a.Deliveries > 0 {
+		a.ClickRate = float64(a.Clicks) / float64(a.Deliveries) * 100
 	}
 	// If API returns rates as decimals (0.0-1.0), convert to percentages.
 	if a.OpenRate > 0 && a.OpenRate <= 1 {
@@ -205,12 +206,12 @@ func fetchEmailAnalytics(apiKey, emailID string) (analytics, error) {
 	return a, nil
 }
 
-func fetchRecipientCount(apiKey, emailID string) (int, error) {
+func fetchDeliveryCount(apiKey, emailID string) (int, error) {
 	a, err := fetchEmailAnalytics(apiKey, emailID)
 	if err != nil {
 		return 0, err
 	}
-	return a.Recipients, nil
+	return a.Deliveries, nil
 }
 
 // fetchAllNewsletterEmails paginates through all sent emails in chronological order.

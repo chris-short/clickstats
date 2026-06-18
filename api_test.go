@@ -269,7 +269,7 @@ func TestHandleTrends(t *testing.T) {
 				},
 			})
 		case strings.HasSuffix(r.URL.Path, "/analytics"):
-			json.NewEncoder(w).Encode(analytics{Recipients: 1000, Opens: 450, Clicks: 120})
+			json.NewEncoder(w).Encode(analytics{Deliveries: 1000, Opens: 450, Clicks: 120})
 		}
 	})
 	defer cleanup()
@@ -345,7 +345,7 @@ func TestHandlePrintWithSponsor(t *testing.T) {
 				},
 			})
 		case "/emails/uid-1/analytics":
-			json.NewEncoder(w).Encode(analytics{Recipients: 1000})
+			json.NewEncoder(w).Encode(analytics{Deliveries: 1000})
 		}
 	})
 	defer cleanup()
