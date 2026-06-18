@@ -461,6 +461,35 @@ func (s *server) handleTrends(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// handleDebugAnalytics fetches the raw analytics JSON from Buttondown for one
+// email so we can verify the actual field names. Remove once confirmed.
+func (s *server) handleDebugAnalytics(w http.ResponseWriter, r *http.Request) {
+	emails, err := fetchRecentEmails(s.apiKey, 1)
+	if err != nil || len(emails) == 0 {
+		http.Error(w, "could not fetch emails: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	e := emails[0]
+	url := fmt.Sprintf("%s/emails/%s/analytics", buttondownBase, e.ID)
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Token "+s.apiKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+	var raw json.RawMessage
+	json.NewDecoder(resp.Body).Decode(&raw)
+	w.Header().Set("Content-Type", "application/json")
+	out, _ := json.MarshalIndent(map[string]interface{}{
+		"email_id":      e.ID,
+		"email_subject": e.Subject,
+		"raw_analytics": raw,
+	}, "", "  ")
+	w.Write(out)
+}
+
 func (s *server) handleBottomDomains(w http.ResponseWriter, r *http.Request) {
 	const cacheKey = "bottom_domains"
 	if v, ok := s.cache.get(cacheKey); ok {

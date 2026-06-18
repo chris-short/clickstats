@@ -32,6 +32,7 @@ func newServer(apiKey, name string) *server {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", s.handleConfig)
+	mux.HandleFunc("GET /api/debug/analytics", s.handleDebugAnalytics)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/trends", s.handleTrends)
 	mux.HandleFunc("GET /api/issues", s.handleIssues)

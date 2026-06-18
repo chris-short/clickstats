@@ -120,7 +120,7 @@ func (s *server) handlePrint(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rate := 0.0
-		if recipients, err := fetchRecipientCount(s.apiKey, emailID); err == nil && recipients > 0 {
+		if recipients, err := fetchDeliveryCount(s.apiKey, emailID); err == nil && recipients > 0 {
 			rate = float64(clicks) / float64(recipients) * 100
 		}
 		sp = &sponsorData{
