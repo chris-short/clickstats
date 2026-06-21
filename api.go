@@ -572,12 +572,18 @@ func (s *server) handleIssueStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	filtered := make(map[string]int, len(counts))
+	for u, c := range counts {
+		if !s.isExcluded(u) {
+			filtered[u] = c
+		}
+	}
 	resp := issueStatsResponse{
 		Issue:       n,
 		Subject:     subject,
 		EmailID:     emailID,
-		TotalClicks: sumCounts(counts),
-		Links:       sortedLinks(counts, 0),
+		TotalClicks: sumCounts(filtered),
+		Links:       sortedLinks(filtered, 0),
 	}
 	s.cache.set(cacheKey, resp)
 	writeJSON(w, resp)
