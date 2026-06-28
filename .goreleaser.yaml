@@ -19,7 +19,7 @@ builds:
       - -s -w
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_
       {{- .Os }}_
@@ -29,7 +29,7 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-brews:
+homebrew:
   - name: clickstats
     repository:
       owner: chris-short
