@@ -20,13 +20,23 @@ Click analytics dashboard for [Buttondown](https://buttondown.com) newsletters. 
 
 ## Prerequisites
 
-- Go 1.22+
 - A Buttondown API key (`Settings > API keys`)
 
-## Build
+## Install
+
+### Homebrew (macOS and Linux)
 
 ```bash
-git clone https://github.com/chrisshort/clickstats
+brew tap chris-short/clickstats
+brew install clickstats
+```
+
+### Build from source
+
+Requires Go 1.22+.
+
+```bash
+git clone https://github.com/chris-short/clickstats
 cd clickstats
 go build -o clickstats .
 ```
