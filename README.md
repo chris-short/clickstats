@@ -27,8 +27,7 @@ Click analytics dashboard for [Buttondown](https://buttondown.com) newsletters. 
 ### Homebrew (macOS and Linux)
 
 ```bash
-brew tap chris-short/clickstats
-brew install clickstats
+brew install chris-short/clickstats/clickstats
 ```
 
 ### Build from source
@@ -47,7 +46,7 @@ go build -o clickstats .
 
 ```bash
 export BUTTONDOWN_API_KEY=your_key
-./clickstats serve
+clickstats serve
 # Open http://127.0.0.1:8080
 ```
 
@@ -63,16 +62,16 @@ Environment variable equivalents: `CLICKSTATS_NAME`, `CLICKSTATS_CACHE_DIR`.
 
 ```bash
 # All-time top links
-BUTTONDOWN_API_KEY=your_key ./clickstats
+BUTTONDOWN_API_KEY=your_key clickstats
 
 # Filter to a specific issue number
-BUTTONDOWN_API_KEY=your_key ./clickstats --issue 322
+BUTTONDOWN_API_KEY=your_key clickstats --issue 322
 
 # Filter by email UUID directly
-BUTTONDOWN_API_KEY=your_key ./clickstats --email-id abc-123-...
+BUTTONDOWN_API_KEY=your_key clickstats --email-id abc-123-...
 
 # Inspect raw click event metadata (useful if links aren't resolving)
-BUTTONDOWN_API_KEY=your_key ./clickstats --debug
+BUTTONDOWN_API_KEY=your_key clickstats --debug
 ```
 
 ## Self-hosting on Render
