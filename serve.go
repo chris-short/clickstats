@@ -70,6 +70,11 @@ func runServe(args []string) {
 		defaultExclude = e
 	}
 	excludeFlag := fset.String("exclude-domains", defaultExclude, "comma-separated domains to exclude from all analytics")
+	defaultInterval := "30m"
+	if v := os.Getenv("CLICKSTATS_REFRESH_INTERVAL"); v != "" {
+		defaultInterval = v
+	}
+	refreshFlag := fset.String("refresh-interval", defaultInterval, "how often to refresh cached data from Buttondown (e.g. 30m, 1h)")
 	fset.Parse(args)
 
 	apiKey := os.Getenv("BUTTONDOWN_API_KEY")
@@ -85,17 +90,31 @@ func runServe(args []string) {
 		}
 	}
 
+	interval := parseRefreshInterval(*refreshFlag)
+
 	s := newServer(apiKey, *name)
 	s.excludeDomains = excluded
 	s.disk = newDiskCache(*cacheDir)
 	fmt.Printf("clickstats cache: %s\n", s.disk.path)
-	s.warmCache()
+	s.startRefreshLoop(interval)
 	addr := fmt.Sprintf("%s:%d", *host, *port)
-	fmt.Printf("clickstats listening on http://%s (warming cache in background)\n", addr)
+	fmt.Printf("clickstats listening on http://%s (refreshing every %s)\n", addr, interval)
 	if err := http.ListenAndServe(addr, s.mux); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseRefreshInterval parses a duration string, falling back to 30m when the
+// value is empty, unparseable, or non-positive.
+func parseRefreshInterval(s string) time.Duration {
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d
+	}
+	if s != "" {
+		fmt.Fprintf(os.Stderr, "invalid refresh interval %q, using 30m\n", s)
+	}
+	return 30 * time.Minute
 }
 
 func mustHomeDir() string {

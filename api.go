@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // --- Response types ---
@@ -324,32 +325,55 @@ func (s *server) loadIssues() (issuesResponse, error) {
 	return issuesResponse{Issues: summaries}, nil
 }
 
-// warmCache fetches raw click data once, then derives stats and domains from
-// the cached result so Buttondown is only paginated once at startup.
-func (s *server) warmCache() {
-	go func() {
-		if _, err := s.cachedAllClicks(); err != nil {
-			return
+// refreshAll force-fetches raw click data from Buttondown, ignoring TTLs, and
+// writes it to the in-memory and disk caches before rebuilding the derived
+// responses. Seeding the raw counts first means loadStats/loadDomains reuse
+// them instead of paginating the API again. On a fetch error it logs and leaves
+// the existing caches intact, so handlers keep serving the last good data until
+// the next tick.
+func (s *server) refreshAll() {
+	if counts, err := fetchAllClicks(s.apiKey); err != nil {
+		fmt.Fprintf(os.Stderr, "refresh: all-clicks: %v\n", err)
+	} else {
+		s.cache.set("_raw_clicks", counts)
+		if s.disk != nil {
+			s.disk.setAllClicks(counts)
 		}
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			if resp, err := s.loadStats(); err == nil {
-				s.cache.set("stats", resp)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			if resp, err := s.loadDomains(); err == nil {
-				s.cache.set("domains", resp)
-			}
-		}()
-		wg.Wait()
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		if resp, err := s.loadStats(); err == nil {
+			s.cache.set("stats", resp)
+		}
 	}()
 	go func() {
+		defer wg.Done()
+		if resp, err := s.loadDomains(); err == nil {
+			s.cache.set("domains", resp)
+		}
+	}()
+	go func() {
+		defer wg.Done()
 		if resp, err := s.loadIssues(); err == nil {
 			s.cache.set("issues", resp)
+		}
+	}()
+	wg.Wait()
+}
+
+// startRefreshLoop refreshes the cache once immediately, then on every interval
+// tick for the lifetime of the process. A single goroutine owns the ticker, so
+// refreshes never overlap even if one runs long.
+func (s *server) startRefreshLoop(interval time.Duration) {
+	go func() {
+		s.refreshAll()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for range t.C {
+			s.refreshAll()
 		}
 	}()
 }
