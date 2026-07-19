@@ -295,6 +295,42 @@ func TestHandleTrends(t *testing.T) {
 	}
 }
 
+func TestRefreshAllPopulatesCache(t *testing.T) {
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/events":
+			json.NewEncoder(w).Encode(eventsPage{
+				Results: []emailEvent{fakeEvent("https://a.com"), fakeEvent("https://a.com"), fakeEvent("https://b.com")},
+				Count:   3,
+			})
+		case "/emails":
+			json.NewEncoder(w).Encode(emailsPage{
+				Count:   5,
+				Results: []email{{ID: "id-1", Subject: "DevOps'ish 322"}},
+			})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	s.refreshAll()
+
+	for _, key := range []string{"stats", "domains", "issues"} {
+		if _, ok := s.cache.get(key); !ok {
+			t.Errorf("%q not cached after refreshAll", key)
+		}
+	}
+
+	v, _ := s.cache.get("stats")
+	resp, ok := v.(statsResponse)
+	if !ok {
+		t.Fatalf("stats cache entry has type %T, want statsResponse", v)
+	}
+	if resp.TotalClicks != 3 {
+		t.Errorf("stats.TotalClicks: got %d want 3", resp.TotalClicks)
+	}
+}
+
 func TestHandlePrintNoSponsor(t *testing.T) {
 	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
