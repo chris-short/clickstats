@@ -26,10 +26,10 @@ type analyticsEntry struct {
 }
 
 type diskData struct {
-	AllClicks   map[string]int              `json:"ac,omitempty"`
-	AllSaved    time.Time                   `json:"as,omitempty"`
-	IssueClicks map[string]issueEntry       `json:"ic,omitempty"`
-	Analytics   map[string]analyticsEntry   `json:"an,omitempty"`
+	AllClicks   map[string]int            `json:"ac,omitempty"`
+	AllSaved    time.Time                 `json:"as,omitempty"`
+	IssueClicks map[string]issueEntry     `json:"ic,omitempty"`
+	Analytics   map[string]analyticsEntry `json:"an,omitempty"`
 }
 
 type diskCache struct {

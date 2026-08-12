@@ -224,12 +224,12 @@ func (s *server) loadStats() (statsResponse, error) {
 		return statsResponse{}, emailErr
 	}
 
-	total      := sumCounts(counts)
+	total := sumCounts(counts)
 	totalLinks := len(counts)
 	avgClicks, avgLinks := 0, 0
 	if issueCount > 0 {
 		avgClicks = total / issueCount
-		avgLinks  = totalLinks / issueCount
+		avgLinks = totalLinks / issueCount
 	}
 	return statsResponse{
 		TotalClicks:       total,
