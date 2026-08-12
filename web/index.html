@@ -115,6 +115,15 @@
     .domain-name { color: #c4b5fd; font-size: 13px; font-weight: 500; }
     .domain-num { color: #9ca3af; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+    /* ---- Issue table ---- */
+    .issue-cols { grid-template-columns: 56px 1fr 76px 76px 84px 84px; }
+    .domain-row.selected { background: #191934; }
+    .issue-subject {
+      color: #e2e8f0; font-size: 13px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .issue-note { color: #4b5563; font-size: 11px; padding: 10px 4px 0; }
+
     /* ---- Controls ---- */
     .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     input[type=number], input[type=text], input[type=search] {
@@ -165,6 +174,9 @@
       .chart-wrap.sm { height: 180px; }
       .link-row { grid-template-columns: 24px 1fr auto 60px; gap: 8px; }
       .domain-cols { grid-template-columns: 24px 1fr 64px 48px 60px; }
+      /* Subject is dropped on narrow screens; the issue number takes its place. */
+      .issue-cols { grid-template-columns: 1fr 52px 52px 58px 58px; gap: 8px; }
+      .issue-subject { display: none; }
       .domain-row .link-bar-wrap { display: none; }
       .domain-header .bar-spacer { display: none; }
       .link-url { font-size: 12px; }
@@ -230,7 +242,25 @@
 
 <!-- Issues -->
 <div id="tab-issues" class="tab-pane">
-  <div class="section-header" style="margin-bottom:20px">
+  <div class="section-header" style="margin-bottom:14px">
+    <span class="section-title" id="issue-table-title">Recent Issues</span>
+    <span style="font-size:11px;color:#4b5563">Click a row for its link breakdown</span>
+  </div>
+  <div class="domain-header issue-cols">
+    <span>Issue</span>
+    <span class="issue-subject">Subject</span>
+    <span class="domain-num">Clicks</span>
+    <span class="domain-num">Opens</span>
+    <span class="domain-num">Open Rate</span>
+    <span class="domain-num">Click Rate</span>
+  </div>
+  <div id="issue-table"><div class="placeholder">Loading issues...</div></div>
+  <div class="issue-note">
+    Clicks counts every link click. Open rate is opens &divide; deliveries; click rate is
+    Buttondown&rsquo;s clicks &divide; deliveries, which counts each subscriber once.
+  </div>
+
+  <div class="section-header" style="margin:32px 0 20px">
     <span class="section-title">Issue Breakdown</span>
     <div class="controls">
       <input type="number" id="issue-input" placeholder="Issue #" min="1">
@@ -350,7 +380,7 @@
   let bottomLoaded   = false;
   let trendsLoaded   = false;
   let allTrendPoints = [];
-  let trendIssues    = [];
+  let issueList      = [];
   let domainSort     = { col: 'clicks', dir: 'desc' };
 
   const GRID = '#1e1e3a';
@@ -497,32 +527,73 @@
     }
   }
 
-  async function loadTrend() {
+  async function loadIssueList() {
     try {
       const r = await fetch('/api/issues');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      trendIssues = d.issues.slice().sort((a, b) => a.number - b.number);
+      issueList = (d.issues || []).slice().sort((a, b) => a.number - b.number);
       renderTrend();
-    } catch (err) { console.error('loadTrend:', err); }
+      renderIssueTable();
+    } catch (err) {
+      console.error('loadIssueList:', err);
+      document.getElementById('issue-table').innerHTML =
+        '<div class="placeholder">Error loading issues.</div>';
+    }
+  }
+
+  // Rates are only meaningful when the analytics call behind them succeeded,
+  // which the API signals with a non-zero delivery count.
+  function fmtRate(issue, rate) {
+    return issue.deliveries > 0 ? rate.toFixed(1) + '%' : '—';
+  }
+
+  function renderIssueTable() {
+    const container = document.getElementById('issue-table');
+    if (!issueList.length) {
+      container.innerHTML = '<div class="placeholder">No issues found</div>';
+      document.getElementById('issue-table-title').textContent = 'Recent Issues';
+      return;
+    }
+    document.getElementById('issue-table-title').textContent =
+      'Recent Issues (' + issueList.length + ')';
+    const rows = issueList.slice().reverse(); // newest first
+    container.innerHTML = rows.map(i => {
+      const sel   = currentIssue && i.number === parseInt(currentIssue) ? ' selected' : '';
+      const title = i.subject + (i.deliveries > 0 ? ' — ' + i.deliveries.toLocaleString() + ' deliveries' : '');
+      return `<div class="domain-row issue-cols${sel}" data-issue="${i.number}" title="${escHtml(title)}">
+        <span class="domain-name">#${i.number}</span>
+        <span class="issue-subject">${escHtml(i.subject)}</span>
+        <span class="domain-num">${i.total_clicks.toLocaleString()}</span>
+        <span class="domain-num">${i.deliveries > 0 ? i.opens.toLocaleString() : '—'}</span>
+        <span class="domain-num">${fmtRate(i, i.open_rate)}</span>
+        <span class="domain-num">${fmtRate(i, i.click_rate)}</span>
+      </div>`;
+    }).join('');
+    container.querySelectorAll('.domain-row').forEach(row => {
+      row.addEventListener('click', () => {
+        document.getElementById('issue-input').value = row.dataset.issue;
+        loadIssue();
+      });
+    });
   }
 
   function renderTrend() {
-    if (!trendIssues.length) return;
+    if (!issueList.length) return;
     if (trendChart) trendChart.destroy();
 
-    const clicks = trendIssues.map(i => i.total_clicks);
+    const clicks = issueList.map(i => i.total_clicks);
     const avg    = clicks.reduce((s, c) => s + c, 0) / clicks.length;
 
     trendChart = new Chart(document.getElementById('trend-chart'), {
       type: 'bar',
       data: {
-        labels: trendIssues.map(i => '#' + i.number),
+        labels: issueList.map(i => '#' + i.number),
         datasets: [
           {
             type: 'bar',
             data: clicks,
-            backgroundColor: trendIssues.map(i =>
+            backgroundColor: issueList.map(i =>
               currentIssue && i.number === parseInt(currentIssue) ? '#818cf8' : '#4f46e5'
             ),
             borderRadius: 3,
@@ -557,7 +628,7 @@
         onClick: (_evt, elements) => {
           const el = elements.find(e => e.datasetIndex === 0);
           if (!el) return;
-          const issue = trendIssues[el.index];
+          const issue = issueList[el.index];
           document.getElementById('issue-input').value = issue.number;
           switchTab('issues');
           loadIssue();
@@ -587,7 +658,9 @@
       document.getElementById('issue-placeholder').style.display = 'none';
       document.getElementById('issue-links').style.display = 'block';
       renderLinkTable('issue-links', d.links, '#4f46e5');
-      renderTrend(); // re-render to highlight selected issue
+      // Re-render both views so the selected issue is highlighted in each.
+      renderTrend();
+      renderIssueTable();
     } catch (err) { console.error('loadIssue:', err); }
   }
 
@@ -781,8 +854,8 @@
   });
 
   // Initial load + 5-minute auto-refresh
-  Promise.all([loadConfig(), loadAllTime(), loadTrend()]);
-  setInterval(() => Promise.all([loadAllTime(), loadTrend()]), 5 * 60 * 1000);
+  Promise.all([loadConfig(), loadAllTime(), loadIssueList()]);
+  setInterval(() => Promise.all([loadAllTime(), loadIssueList()]), 5 * 60 * 1000);
 </script>
 </body>
 </html>

@@ -29,11 +29,21 @@ type statsResponse struct {
 	TopLinks          []linkCount `json:"top_links"`
 }
 
+// issueSummary carries per-issue engagement. TotalClicks counts click events
+// (the same number the issue link breakdown adds up to), while Opens and the
+// rates come from Buttondown's analytics endpoint. Deliveries is 0 when that
+// analytics call failed, which is how the dashboard knows the rates are unknown
+// rather than genuinely zero.
 type issueSummary struct {
-	Number      int    `json:"number"`
-	EmailID     string `json:"email_id"`
-	Subject     string `json:"subject"`
-	TotalClicks int    `json:"total_clicks"`
+	Number      int     `json:"number"`
+	EmailID     string  `json:"email_id"`
+	Subject     string  `json:"subject"`
+	Date        string  `json:"date"`
+	TotalClicks int     `json:"total_clicks"`
+	Deliveries  int     `json:"deliveries"`
+	Opens       int     `json:"opens"`
+	OpenRate    float64 `json:"open_rate"`
+	ClickRate   float64 `json:"click_rate"`
 }
 
 type issuesResponse struct {
@@ -98,6 +108,18 @@ func sumCounts(counts map[string]int) int {
 	n := 0
 	for _, c := range counts {
 		n += c
+	}
+	return n
+}
+
+// sumIncluded totals click counts, skipping URLs on excluded domains so the
+// number matches the links the dashboard actually shows for an issue.
+func (s *server) sumIncluded(counts map[string]int) int {
+	n := 0
+	for u, c := range counts {
+		if !s.isExcluded(u) {
+			n += c
+		}
 	}
 	return n
 }
@@ -224,12 +246,12 @@ func (s *server) loadStats() (statsResponse, error) {
 		return statsResponse{}, emailErr
 	}
 
-	total      := sumCounts(counts)
+	total := sumCounts(counts)
 	totalLinks := len(counts)
 	avgClicks, avgLinks := 0, 0
 	if issueCount > 0 {
 		avgClicks = total / issueCount
-		avgLinks  = totalLinks / issueCount
+		avgLinks = totalLinks / issueCount
 	}
 	return statsResponse{
 		TotalClicks:       total,
@@ -305,12 +327,24 @@ func (s *server) loadIssues() (issuesResponse, error) {
 				results[i] = result{err: err}
 				return
 			}
-			results[i] = result{summary: issueSummary{
+			sum := issueSummary{
 				Number:      issueNumberFromSubject(e.Subject),
 				EmailID:     e.ID,
 				Subject:     e.Subject,
-				TotalClicks: sumCounts(counts),
-			}}
+				Date:        e.PublishDate,
+				TotalClicks: s.sumIncluded(counts),
+			}
+			// Analytics are best effort: a failure still leaves the click
+			// counts worth serving, so log it and leave the rates zeroed.
+			if a, aErr := s.cachedEmailAnalytics(e.ID); aErr != nil {
+				fmt.Fprintf(os.Stderr, "issues: analytics for %s: %v\n", e.ID, aErr)
+			} else {
+				sum.Deliveries = a.Deliveries
+				sum.Opens = a.Opens
+				sum.OpenRate = a.OpenRate
+				sum.ClickRate = a.ClickRate
+			}
+			results[i] = result{summary: sum}
 		}(i, e)
 	}
 	wg.Wait()

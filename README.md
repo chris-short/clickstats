@@ -12,6 +12,7 @@ Click analytics dashboard for [Buttondown](https://buttondown.com) newsletters. 
 
 - Fetches click events from the Buttondown API and aggregates them by URL
 - Web dashboard with all-time top 50 links, per-issue breakdown, domain aggregation, and a 10-issue trend chart
+- Issues table: clicks, opens, open rate, and click rate for the last 10 issues; click a row for its link breakdown
 - Domain drill-down: click any domain to see all individual links for it
 - Bottom 100 links view: see which links got the least engagement
 - Sponsor report: generate a print-ready PDF showing a sponsor link's rank, clicks, and click rate

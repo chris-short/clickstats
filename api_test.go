@@ -115,15 +115,17 @@ func TestHandleIssueStatsNotFound(t *testing.T) {
 
 func TestHandleIssues(t *testing.T) {
 	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/emails":
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/analytics"):
+			json.NewEncoder(w).Encode(analytics{Deliveries: 200, Opens: 100, Clicks: 20})
+		case r.URL.Path == "/emails":
 			json.NewEncoder(w).Encode(emailsPage{
 				Results: []email{
-					{ID: "id-1", Subject: "DevOps'ish 322"},
+					{ID: "id-1", Subject: "DevOps'ish 322", PublishDate: "2026-08-07T12:00:00Z"},
 					{ID: "id-2", Subject: "DevOps'ish 321"},
 				},
 			})
-		case "/events":
+		case r.URL.Path == "/events":
 			json.NewEncoder(w).Encode(eventsPage{
 				Results: []emailEvent{fakeEvent("https://a.com")},
 			})
@@ -142,13 +144,100 @@ func TestHandleIssues(t *testing.T) {
 	var resp issuesResponse
 	json.NewDecoder(w.Body).Decode(&resp)
 	if len(resp.Issues) != 2 {
-		t.Errorf("Issues len: got %d want 2", len(resp.Issues))
+		t.Fatalf("Issues len: got %d want 2", len(resp.Issues))
 	}
-	if resp.Issues[0].Number != 322 {
-		t.Errorf("Issues[0].Number: got %d want 322", resp.Issues[0].Number)
+	got := resp.Issues[0]
+	if got.Number != 322 {
+		t.Errorf("Number: got %d want 322", got.Number)
+	}
+	if got.TotalClicks != 1 {
+		t.Errorf("TotalClicks: got %d want 1", got.TotalClicks)
+	}
+	if got.Date != "2026-08-07T12:00:00Z" {
+		t.Errorf("Date: got %q want \"2026-08-07T12:00:00Z\"", got.Date)
+	}
+	if got.Deliveries != 200 || got.Opens != 100 {
+		t.Errorf("Deliveries/Opens: got %d/%d want 200/100", got.Deliveries, got.Opens)
+	}
+	if got.OpenRate != 50 {
+		t.Errorf("OpenRate: got %v want 50", got.OpenRate)
+	}
+	if got.ClickRate != 10 {
+		t.Errorf("ClickRate: got %v want 10", got.ClickRate)
+	}
+}
+
+// Clicks on excluded domains are dropped from the issue total so it matches the
+// link list the dashboard shows for that issue.
+func TestHandleIssuesExcludesDomains(t *testing.T) {
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/analytics"):
+			json.NewEncoder(w).Encode(analytics{Deliveries: 100, Opens: 40, Clicks: 5})
+		case r.URL.Path == "/emails":
+			json.NewEncoder(w).Encode(emailsPage{
+				Results: []email{{ID: "id-1", Subject: "DevOps'ish 322"}},
+			})
+		case r.URL.Path == "/events":
+			json.NewEncoder(w).Encode(eventsPage{Results: []emailEvent{
+				fakeEvent("https://a.com"),
+				fakeEvent("https://buttondown.com/unsubscribe"),
+			}})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	s.excludeDomains = map[string]bool{"buttondown.com": true}
+	req := httptest.NewRequest("GET", "/api/issues", nil)
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, req)
+
+	var resp issuesResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Issues) != 1 {
+		t.Fatalf("Issues len: got %d want 1", len(resp.Issues))
 	}
 	if resp.Issues[0].TotalClicks != 1 {
-		t.Errorf("Issues[0].TotalClicks: got %d want 1", resp.Issues[0].TotalClicks)
+		t.Errorf("TotalClicks: got %d want 1 (buttondown.com excluded)", resp.Issues[0].TotalClicks)
+	}
+}
+
+// A failing analytics call must not sink the whole issues response; clicks
+// still come through and Deliveries stays 0 to mark the rates as unknown.
+func TestHandleIssuesAnalyticsFailure(t *testing.T) {
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/analytics"):
+			http.Error(w, "boom", http.StatusInternalServerError)
+		case r.URL.Path == "/emails":
+			json.NewEncoder(w).Encode(emailsPage{
+				Results: []email{{ID: "id-1", Subject: "DevOps'ish 322"}},
+			})
+		case r.URL.Path == "/events":
+			json.NewEncoder(w).Encode(eventsPage{Results: []emailEvent{fakeEvent("https://a.com")}})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	req := httptest.NewRequest("GET", "/api/issues", nil)
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d want 200", w.Code)
+	}
+	var resp issuesResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Issues) != 1 {
+		t.Fatalf("Issues len: got %d want 1", len(resp.Issues))
+	}
+	if resp.Issues[0].TotalClicks != 1 {
+		t.Errorf("TotalClicks: got %d want 1", resp.Issues[0].TotalClicks)
+	}
+	if resp.Issues[0].Deliveries != 0 || resp.Issues[0].OpenRate != 0 {
+		t.Errorf("want zeroed analytics, got %+v", resp.Issues[0])
 	}
 }
 
