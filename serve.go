@@ -15,20 +15,30 @@ import (
 //go:embed web
 var webFiles embed.FS
 
+// defaultMemTTL is how long handler responses stay in memory when no shorter
+// refresh interval is configured.
+const defaultMemTTL = 10 * time.Minute
+
+// defaultRefreshInterval is how often cached data is re-synced from Buttondown.
+// A refresh that finds nothing new costs a single request regardless of how
+// much click history has accumulated, so this can afford to be frequent.
+const defaultRefreshInterval = 5 * time.Minute
+
 type server struct {
-	apiKey         string
-	name           string
-	mux            *http.ServeMux
-	cache          *cache
-	disk           *diskCache // nil when no cache dir is available
-	excludeDomains map[string]bool
+	apiKey          string
+	name            string
+	mux             *http.ServeMux
+	cache           *cache
+	disk            *diskCache // nil when no cache dir is available
+	excludeDomains  map[string]bool
+	refreshInterval time.Duration // 0 outside serve mode
 }
 
 func newServer(apiKey, name string) *server {
 	s := &server{
 		apiKey: apiKey,
 		name:   name,
-		cache:  newCache(10 * time.Minute),
+		cache:  newCache(defaultMemTTL),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", s.handleConfig)
@@ -70,11 +80,11 @@ func runServe(args []string) {
 		defaultExclude = e
 	}
 	excludeFlag := fset.String("exclude-domains", defaultExclude, "comma-separated domains to exclude from all analytics")
-	defaultInterval := "30m"
+	defaultInterval := defaultRefreshInterval.String()
 	if v := os.Getenv("CLICKSTATS_REFRESH_INTERVAL"); v != "" {
 		defaultInterval = v
 	}
-	refreshFlag := fset.String("refresh-interval", defaultInterval, "how often to refresh cached data from Buttondown (e.g. 30m, 1h)")
+	refreshFlag := fset.String("refresh-interval", defaultInterval, "how often to refresh cached data from Buttondown (e.g. 5m, 1h)")
 	fset.Parse(args)
 
 	apiKey := os.Getenv("BUTTONDOWN_API_KEY")
@@ -105,16 +115,16 @@ func runServe(args []string) {
 	}
 }
 
-// parseRefreshInterval parses a duration string, falling back to 30m when the
-// value is empty, unparseable, or non-positive.
+// parseRefreshInterval parses a duration string, falling back to the default
+// when the value is empty, unparseable, or non-positive.
 func parseRefreshInterval(s string) time.Duration {
 	if d, err := time.ParseDuration(s); err == nil && d > 0 {
 		return d
 	}
 	if s != "" {
-		fmt.Fprintf(os.Stderr, "invalid refresh interval %q, using 30m\n", s)
+		fmt.Fprintf(os.Stderr, "invalid refresh interval %q, using %s\n", s, defaultRefreshInterval)
 	}
-	return 30 * time.Minute
+	return defaultRefreshInterval
 }
 
 func mustHomeDir() string {

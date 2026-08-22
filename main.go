@@ -26,13 +26,13 @@ func main() {
 	}
 
 	if *issue != 0 {
-		id, subject, err := lookupEmailByIssue(apiKey, *issue)
+		e, err := lookupEmailByIssue(apiKey, *issue)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error looking up issue %d: %v\n", *issue, err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "matched: %s (%s)\n", subject, id)
-		*emailID = id
+		fmt.Fprintf(os.Stderr, "matched: %s (%s)\n", e.Subject, e.ID)
+		*emailID = e.ID
 	}
 
 	if *debug {

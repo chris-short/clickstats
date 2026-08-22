@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 var buttondownBase = "https://api.buttondown.com/v1"
@@ -13,7 +14,8 @@ var buttondownBase = "https://api.buttondown.com/v1"
 var metadataURLKeys = []string{"url", "link", "link_url", "clicked_url"}
 
 type emailEvent struct {
-	Metadata map[string]string `json:"metadata"`
+	CreationDate time.Time         `json:"creation_date"`
+	Metadata     map[string]string `json:"metadata"`
 }
 
 type eventsPage struct {
@@ -95,37 +97,92 @@ func fetchClicksFromURL(apiKey, startURL string) (map[string]int, error) {
 	return counts, nil
 }
 
+// clickDelta is the result of a click history sync: the click counts found,
+// how many events they came from, the newest event timestamp seen, and the
+// collection total the API reported.
+type clickDelta struct {
+	counts map[string]int
+	events int // includes events carrying no usable URL, so it can be reconciled against total
+	newest time.Time
+	total  int
+}
+
+// fetchClicksSince walks click events newest-first and stops at the first event
+// at or before mark, so its cost tracks how many clicks arrived since the last
+// sync rather than how many exist. A zero mark walks the whole history.
+//
+// Ordering is requested explicitly rather than relying on the collection's
+// default, since the early stop is only correct if newer events come first.
+func fetchClicksSince(apiKey string, mark time.Time) (clickDelta, error) {
+	d := clickDelta{counts: map[string]int{}}
+	nextURL := buttondownBase + "/events?event_type=clicked&ordering=-creation_date"
+	for page := 0; nextURL != ""; page++ {
+		p, err := fetchPage(apiKey, nextURL)
+		if err != nil {
+			return clickDelta{}, err
+		}
+		if page == 0 {
+			d.total = p.Count
+		}
+		for _, e := range p.Results {
+			// A zero mark means "take everything", so the stop is skipped
+			// rather than compared: an event with no usable timestamp would
+			// otherwise end a full walk on its first page.
+			if !mark.IsZero() && !e.CreationDate.After(mark) {
+				return d, nil // caught up with what the cache already counted
+			}
+			if e.CreationDate.After(d.newest) {
+				d.newest = e.CreationDate
+			}
+			d.events++
+			if u := extractURL(e.Metadata); u != "" {
+				d.counts[u]++
+			}
+		}
+		if p.Next == nil || len(p.Results) == 0 {
+			break
+		}
+		nextURL = *p.Next
+	}
+	return d, nil
+}
+
+// fetchAllClicks walks the entire click history. The CLI uses it directly; the
+// server syncs incrementally through fetchClicksSince.
 func fetchAllClicks(apiKey string) (map[string]int, error) {
-	return fetchClicksFromURL(apiKey, buttondownBase+"/events?event_type=clicked")
+	d, err := fetchClicksSince(apiKey, time.Time{})
+	return d.counts, err
 }
 
 func fetchClicksForEmail(apiKey, emailID string) (map[string]int, error) {
 	return fetchClicksFromURL(apiKey, buttondownBase+"/events?event_type=clicked&email_id="+emailID)
 }
 
-func lookupEmailByIssue(apiKey string, issue int) (id, subject string, err error) {
+// lookupEmailByIssue returns the whole email rather than just its ID, since
+// callers need the publish date to decide how long its data may be cached.
+func lookupEmailByIssue(apiKey string, issue int) (email, error) {
 	url := fmt.Sprintf("%s/emails?subject=%d&excluded_fields=body", buttondownBase, issue)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", "", err
+		return email{}, err
 	}
 	req.Header.Set("Authorization", "Token "+apiKey)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", err
+		return email{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("API returned %s", resp.Status)
+		return email{}, fmt.Errorf("API returned %s", resp.Status)
 	}
 	var p emailsPage
 	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
-		return "", "", err
+		return email{}, err
 	}
 	if len(p.Results) == 0 {
-		return "", "", fmt.Errorf("no email found with subject containing %d", issue)
+		return email{}, fmt.Errorf("no email found with subject containing %d", issue)
 	}
-	return p.Results[0].ID, p.Results[0].Subject, nil
+	return p.Results[0], nil
 }
 
 func fetchSentEmailsPage(apiKey string) (*emailsPage, error) {

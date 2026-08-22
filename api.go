@@ -145,10 +145,14 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // --- Data loaders (shared by handlers and cache warmer) ---
 
+// rawClicksKey holds the all-time URL -> click count map shared by the stats,
+// domains and issues responses.
+const rawClicksKey = "_raw_clicks"
+
 // cachedAllClicks returns all-time click counts. It checks the in-memory cache,
 // then the disk cache, then falls back to the Buttondown API.
 func (s *server) cachedAllClicks() (map[string]int, error) {
-	const key = "_raw_clicks"
+	const key = rawClicksKey
 	if v, ok := s.cache.get(key); ok {
 		return v.(map[string]int), nil
 	}
@@ -157,7 +161,7 @@ func (s *server) cachedAllClicks() (map[string]int, error) {
 		s.cache.set(key, counts)
 		return counts, nil
 	}
-	counts, err := fetchAllClicks(s.apiKey)
+	d, err := fetchClicksSince(s.apiKey, time.Time{})
 	if err != nil {
 		// Serve stale disk data rather than failing completely.
 		if s.disk != nil {
@@ -169,20 +173,72 @@ func (s *server) cachedAllClicks() (map[string]int, error) {
 		}
 		return nil, err
 	}
-	s.cache.set(key, counts)
+	s.cache.set(key, d.counts)
 	if s.disk != nil {
-		s.disk.setAllClicks(counts)
+		s.disk.setAllClicks(d.counts, d.total, d.newest)
 	}
-	return counts, nil
+	return d.counts, nil
 }
 
-func (s *server) cachedEmailAnalytics(emailID string) (analytics, error) {
+// Analytics cache tiers. Opens and clicks pile up in the first couple of days
+// after an issue goes out and barely move afterwards, so how stale the cached
+// numbers may be is tied to the issue's age rather than a single global TTL.
+const (
+	engagementSettleAge = 72 * time.Hour      // still accumulating engagement
+	engagementFreshTTL  = 15 * time.Minute    // ...so recheck often
+	engagementWarmAge   = 30 * 24 * time.Hour // mostly settled, still drifts
+	engagementWarmTTL   = 6 * time.Hour
+	engagementColdTTL   = 30 * 24 * time.Hour // done moving; cache hard
+)
+
+// publishDateFormats covers both shapes Buttondown returns for publish_date: a
+// full RFC 3339 timestamp and a bare calendar date.
+var publishDateFormats = []string{time.RFC3339, time.DateOnly}
+
+func parsePublishDate(s string) (time.Time, error) {
+	for _, f := range publishDateFormats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized publish date %q", s)
+}
+
+// engagementTTLFor returns how long cached analytics for an issue stay valid,
+// based on how long ago it was published. An unparseable date is treated as
+// recent on purpose: refetching too often is a cheap mistake, while assuming an
+// unknown issue is old would silently freeze its numbers for a month.
+func (s *server) engagementTTLFor(publishDate string) time.Duration {
+	t, err := parsePublishDate(publishDate)
+	if err != nil {
+		return s.freshTTL()
+	}
+	switch age := time.Since(t); {
+	case age < engagementSettleAge:
+		return s.freshTTL()
+	case age < engagementWarmAge:
+		return engagementWarmTTL
+	default:
+		return engagementColdTTL
+	}
+}
+
+// freshTTL caps the shortest analytics TTL at the configured refresh interval,
+// so asking for faster refreshes isn't quietly overridden by a longer cache TTL.
+func (s *server) freshTTL() time.Duration {
+	if s.refreshInterval > 0 && s.refreshInterval < engagementFreshTTL {
+		return s.refreshInterval
+	}
+	return engagementFreshTTL
+}
+
+func (s *server) cachedEmailAnalytics(emailID, publishDate string) (analytics, error) {
 	memKey := "analytics:" + emailID
 	if v, ok := s.cache.get(memKey); ok {
 		return v.(analytics), nil
 	}
 	if s.disk != nil {
-		if a, ok := s.disk.getAnalytics(emailID); ok {
+		if a, ok := s.disk.getAnalytics(emailID, s.engagementTTLFor(publishDate)); ok {
 			s.cache.set(memKey, a)
 			return a, nil
 		}
@@ -199,14 +255,15 @@ func (s *server) cachedEmailAnalytics(emailID string) (analytics, error) {
 }
 
 // cachedClicksForEmail returns click counts for a single email, checking
-// in-memory cache, then disk cache, before calling the API.
-func (s *server) cachedClicksForEmail(emailID string) (map[string]int, error) {
+// in-memory cache, then disk cache, before calling the API. Like analytics,
+// how long the cached breakdown is trusted depends on the issue's age.
+func (s *server) cachedClicksForEmail(emailID, publishDate string) (map[string]int, error) {
 	memKey := "email:" + emailID
 	if v, ok := s.cache.get(memKey); ok {
 		return v.(map[string]int), nil
 	}
 	if s.disk != nil {
-		if counts, ok := s.disk.getIssueClicks(emailID); ok {
+		if counts, ok := s.disk.getIssueClicks(emailID, s.engagementTTLFor(publishDate)); ok {
 			s.cache.set(memKey, counts)
 			return counts, nil
 		}
@@ -322,7 +379,7 @@ func (s *server) loadIssues() (issuesResponse, error) {
 		wg.Add(1)
 		go func(i int, e email) {
 			defer wg.Done()
-			counts, err := s.cachedClicksForEmail(e.ID)
+			counts, err := s.cachedClicksForEmail(e.ID, e.PublishDate)
 			if err != nil {
 				results[i] = result{err: err}
 				return
@@ -336,7 +393,7 @@ func (s *server) loadIssues() (issuesResponse, error) {
 			}
 			// Analytics are best effort: a failure still leaves the click
 			// counts worth serving, so log it and leave the rates zeroed.
-			if a, aErr := s.cachedEmailAnalytics(e.ID); aErr != nil {
+			if a, aErr := s.cachedEmailAnalytics(e.ID, e.PublishDate); aErr != nil {
 				fmt.Fprintf(os.Stderr, "issues: analytics for %s: %v\n", e.ID, aErr)
 			} else {
 				sum.Deliveries = a.Deliveries
@@ -359,21 +416,87 @@ func (s *server) loadIssues() (issuesResponse, error) {
 	return issuesResponse{Issues: summaries}, nil
 }
 
-// refreshAll force-fetches raw click data from Buttondown, ignoring TTLs, and
+// refreshAll refreshes raw click data from Buttondown, ignoring TTLs, and
 // writes it to the in-memory and disk caches before rebuilding the derived
 // responses. Seeding the raw counts first means loadStats/loadDomains reuse
 // them instead of paginating the API again. On a fetch error it logs and leaves
 // the existing caches intact, so handlers keep serving the last good data until
 // the next tick.
-func (s *server) refreshAll() {
-	if counts, err := fetchAllClicks(s.apiKey); err != nil {
-		fmt.Fprintf(os.Stderr, "refresh: all-clicks: %v\n", err)
-	} else {
-		s.cache.set("_raw_clicks", counts)
-		if s.disk != nil {
-			s.disk.setAllClicks(counts)
-		}
+// mergeCounts combines two click count maps into a new one. It never mutates
+// its inputs: handlers may still be reading the cached map when a refresh runs.
+func mergeCounts(base, delta map[string]int) map[string]int {
+	merged := make(map[string]int, len(base)+len(delta))
+	for u, c := range base {
+		merged[u] = c
 	}
+	for u, c := range delta {
+		merged[u] += c
+	}
+	return merged
+}
+
+// refreshAllClicks brings the cached click history up to date by fetching only
+// the events that arrived since the last sync. Buttondown returns events
+// newest-first, so the walk stops as soon as it reaches one already counted,
+// and a page covers days of activity: a routine refresh is a single request no
+// matter how large the history behind it grows.
+//
+// The event totals are the safety net. Cached events plus new events must equal
+// the total the API reports; when it doesn't, something changed behind the mark
+// (a deleted subscriber, an event arriving out of order) and the only honest
+// response is to rebuild from scratch.
+func (s *server) refreshAllClicks() {
+	cached, mark, total, ok := s.clickState()
+	if !ok {
+		s.walkAllClicks()
+		return
+	}
+	d, err := fetchClicksSince(s.apiKey, mark)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "refresh: clicks since %s: %v\n", mark.Format(time.RFC3339), err)
+		return
+	}
+	if d.events == 0 && d.total == total {
+		// Confirmed unchanged. The cache is current even though nothing was
+		// downloaded, so reset its age instead of letting the TTL force a walk.
+		s.disk.markAllClicksVerified()
+		s.cache.set(rawClicksKey, cached)
+		return
+	}
+	if total+d.events != d.total {
+		fmt.Fprintf(os.Stderr, "refresh: click history drifted (%d cached + %d new != %d reported), rebuilding\n",
+			total, d.events, d.total)
+		s.walkAllClicks()
+		return
+	}
+	merged := mergeCounts(cached, d.counts)
+	s.cache.set(rawClicksKey, merged)
+	s.disk.setAllClicks(merged, d.total, d.newest)
+}
+
+// clickState reports the cached click history to sync against, if there is one.
+func (s *server) clickState() (map[string]int, time.Time, int, bool) {
+	if s.disk == nil {
+		return nil, time.Time{}, 0, false
+	}
+	return s.disk.allClicksState()
+}
+
+// walkAllClicks rebuilds the click history from scratch, replacing the cache.
+func (s *server) walkAllClicks() {
+	d, err := fetchClicksSince(s.apiKey, time.Time{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "refresh: all-clicks: %v\n", err)
+		return
+	}
+	s.cache.set(rawClicksKey, d.counts)
+	if s.disk != nil {
+		s.disk.setAllClicks(d.counts, d.total, d.newest)
+	}
+}
+
+func (s *server) refreshAll() {
+	s.refreshAllClicks()
 
 	var wg sync.WaitGroup
 	wg.Add(3)
@@ -402,6 +525,10 @@ func (s *server) refreshAll() {
 // tick for the lifetime of the process. A single goroutine owns the ticker, so
 // refreshes never overlap even if one runs long.
 func (s *server) startRefreshLoop(interval time.Duration) {
+	s.refreshInterval = interval
+	// Holding a response in memory for longer than the gap between refreshes
+	// would make ticks no-ops, so no cache layer outlives the interval.
+	s.cache.setTTL(min(defaultMemTTL, interval))
 	go func() {
 		s.refreshAll()
 		t := time.NewTicker(interval)
@@ -490,7 +617,7 @@ func (s *server) handleTrends(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			a, err := s.cachedEmailAnalytics(e.ID)
+			a, err := s.cachedEmailAnalytics(e.ID, e.PublishDate)
 			if err != nil {
 				return
 			}
@@ -620,12 +747,12 @@ func (s *server) handleIssueStats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, v)
 		return
 	}
-	emailID, subject, err := lookupEmailByIssue(s.apiKey, n)
+	e, err := lookupEmailByIssue(s.apiKey, n)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	counts, err := s.cachedClicksForEmail(emailID)
+	counts, err := s.cachedClicksForEmail(e.ID, e.PublishDate)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -638,8 +765,8 @@ func (s *server) handleIssueStats(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := issueStatsResponse{
 		Issue:       n,
-		Subject:     subject,
-		EmailID:     emailID,
+		Subject:     e.Subject,
+		EmailID:     e.ID,
 		TotalClicks: sumCounts(filtered),
 		Links:       sortedLinks(filtered, 0),
 	}

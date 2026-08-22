@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeButtondown starts a mock Buttondown server and points buttondownBase at it.
@@ -417,6 +420,320 @@ func TestRefreshAllPopulatesCache(t *testing.T) {
 	}
 	if resp.TotalClicks != 3 {
 		t.Errorf("stats.TotalClicks: got %d want 3", resp.TotalClicks)
+	}
+}
+
+func TestParsePublishDate(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantErr bool
+	}{
+		{"2026-08-07T12:00:00Z", false},
+		{"2024-01-15", false},
+		{"", true},
+		{"not a date", true},
+	}
+	for _, c := range cases {
+		_, err := parsePublishDate(c.in)
+		if (err != nil) != c.wantErr {
+			t.Errorf("parsePublishDate(%q): err=%v, wantErr=%v", c.in, err, c.wantErr)
+		}
+	}
+}
+
+func TestEngagementTTLFor(t *testing.T) {
+	s := newServer("key", "Test")
+	ago := func(d time.Duration) string { return time.Now().Add(-d).Format(time.RFC3339) }
+	cases := []struct {
+		name string
+		date string
+		want time.Duration
+	}{
+		{"just sent", ago(2 * time.Hour), engagementFreshTTL},
+		{"still settling", ago(48 * time.Hour), engagementFreshTTL},
+		{"past settle age", ago(5 * 24 * time.Hour), engagementWarmTTL},
+		{"old issue", ago(90 * 24 * time.Hour), engagementColdTTL},
+		// An unknown age must not be treated as old, or its numbers freeze.
+		{"unparseable", "who knows", engagementFreshTTL},
+	}
+	for _, c := range cases {
+		if got := s.engagementTTLFor(c.date); got != c.want {
+			t.Errorf("%s: got %s want %s", c.name, got, c.want)
+		}
+	}
+}
+
+// A fast refresh interval must not be overridden by a longer analytics TTL.
+func TestAnalyticsTTLRespectsRefreshInterval(t *testing.T) {
+	s := newServer("key", "Test")
+	s.refreshInterval = time.Minute
+	if got := s.engagementTTLFor(time.Now().Format(time.RFC3339)); got != time.Minute {
+		t.Errorf("got %s want 1m0s", got)
+	}
+	// A slower interval than the tier leaves the tier alone.
+	s.refreshInterval = time.Hour
+	if got := s.engagementTTLFor(time.Now().Format(time.RFC3339)); got != engagementFreshTTL {
+		t.Errorf("got %s want %s", got, engagementFreshTTL)
+	}
+}
+
+// Analytics for a recently sent issue must refetch even when a cached entry
+// exists, because opens are still piling up.
+func TestAnalyticsRefetchedForRecentIssue(t *testing.T) {
+	calls := 0
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/analytics") {
+			calls++
+			json.NewEncoder(w).Encode(analytics{Deliveries: 100, Opens: 60, Clicks: 10})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	s.disk = newDiskCache(t.TempDir())
+	// Cached an hour ago: stale for a fresh issue, fine for an old one.
+	s.disk.d.Analytics["id-1"] = analyticsEntry{
+		A:     analytics{Deliveries: 100, Opens: 10},
+		Saved: time.Now().Add(-time.Hour),
+	}
+
+	got, err := s.cachedEmailAnalytics("id-1", time.Now().Add(-2*time.Hour).Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("made %d analytics calls, want 1 (recent issue must refetch)", calls)
+	}
+	if got.Opens != 60 {
+		t.Errorf("Opens: got %d want 60 (want the refetched value)", got.Opens)
+	}
+}
+
+// The flip side: an issue that has stopped moving must be served from cache so
+// the freshness gain doesn't cost an API call per issue per refresh.
+func TestAnalyticsCachedForOldIssue(t *testing.T) {
+	calls := 0
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/analytics") {
+			calls++
+			json.NewEncoder(w).Encode(analytics{Deliveries: 100, Opens: 60})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	s.disk = newDiskCache(t.TempDir())
+	s.disk.d.Analytics["id-1"] = analyticsEntry{
+		A:     analytics{Deliveries: 100, Opens: 10},
+		Saved: time.Now().Add(-time.Hour),
+	}
+
+	got, err := s.cachedEmailAnalytics("id-1", "2023-01-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Errorf("made %d analytics calls, want 0 (old issue should use cache)", calls)
+	}
+	if got.Opens != 10 {
+		t.Errorf("Opens: got %d want 10 (cached value)", got.Opens)
+	}
+}
+
+// Per-issue click breakdowns follow the same rule as analytics: a just-sent
+// issue is still collecting clicks, so a cached breakdown goes stale quickly.
+func TestIssueClicksRefetchedForRecentIssue(t *testing.T) {
+	calls := 0
+	cleanup := fakeButtondown(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/events" {
+			calls++
+			json.NewEncoder(w).Encode(eventsPage{Results: []emailEvent{
+				fakeEvent("https://a.com"), fakeEvent("https://a.com"),
+			}})
+		}
+	})
+	defer cleanup()
+
+	s := newServer("key", "Test")
+	s.disk = newDiskCache(t.TempDir())
+	s.disk.d.IssueClicks["id-1"] = issueEntry{
+		Clicks: map[string]int{"https://a.com": 1},
+		Saved:  time.Now().Add(-time.Hour),
+	}
+
+	recent, err := s.cachedClicksForEmail("id-1", time.Now().Add(-2*time.Hour).Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("made %d click calls, want 1 (recent issue must refetch)", calls)
+	}
+	if recent["https://a.com"] != 2 {
+		t.Errorf("a.com: got %d want 2 (refetched value)", recent["https://a.com"])
+	}
+
+	// An issue that has stopped moving still comes from cache.
+	calls = 0
+	s.cache = newCache(defaultMemTTL)
+	s.disk.d.IssueClicks["id-2"] = issueEntry{
+		Clicks: map[string]int{"https://a.com": 1},
+		Saved:  time.Now().Add(-time.Hour),
+	}
+	old, err := s.cachedClicksForEmail("id-2", "2023-01-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Errorf("made %d click calls, want 0 (old issue should use cache)", calls)
+	}
+	if old["https://a.com"] != 1 {
+		t.Errorf("a.com: got %d want 1 (cached value)", old["https://a.com"])
+	}
+}
+
+func clickEvent(url string, at time.Time) emailEvent {
+	return emailEvent{CreationDate: at, Metadata: map[string]string{"url": url}}
+}
+
+// eventServer fakes the click event collection: newest-first, paged, and
+// counting the all-clicks requests so an incremental sync is distinguishable
+// from a full walk. Requests without the descending ordering are rejected,
+// since the early stop is only correct when newer events come first.
+type eventServer struct {
+	events   []emailEvent // newest first
+	pageSize int
+	requests int
+	base     string
+	srv      *httptest.Server
+}
+
+func newEventServer(t *testing.T, pageSize int, events ...emailEvent) *eventServer {
+	t.Helper()
+	es := &eventServer{events: events, pageSize: pageSize}
+	es.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/analytics"):
+			json.NewEncoder(w).Encode(analytics{Deliveries: 10, Opens: 5})
+		case r.URL.Path == "/emails":
+			json.NewEncoder(w).Encode(emailsPage{Count: 1, Results: []email{{ID: "id-1", Subject: "DevOps'ish 322"}}})
+		case r.URL.Path == "/events" && q.Get("email_id") != "":
+			json.NewEncoder(w).Encode(eventsPage{Results: es.events})
+		case r.URL.Path == "/events":
+			if q.Get("ordering") != "-creation_date" {
+				http.Error(w, "walk must request newest-first ordering", http.StatusBadRequest)
+				return
+			}
+			es.requests++
+			page, _ := strconv.Atoi(q.Get("page"))
+			if page < 1 {
+				page = 1
+			}
+			start := min((page-1)*es.pageSize, len(es.events))
+			end := min(start+es.pageSize, len(es.events))
+			out := eventsPage{Results: es.events[start:end], Count: len(es.events)}
+			if end < len(es.events) {
+				next := fmt.Sprintf("%s/events?event_type=clicked&ordering=-creation_date&page=%d", es.base, page+1)
+				out.Next = &next
+			}
+			json.NewEncoder(w).Encode(out)
+		}
+	}))
+	es.base = es.srv.URL
+	buttondownBase = es.srv.URL
+	t.Cleanup(es.srv.Close)
+	return es
+}
+
+// prepend adds a newer event, the way a fresh click would arrive.
+func (es *eventServer) prepend(e emailEvent) {
+	es.events = append([]emailEvent{e}, es.events...)
+}
+
+// primedServer returns a server whose cache has been filled by a full walk.
+func primedServer(t *testing.T, es *eventServer) *server {
+	t.Helper()
+	s := newServer("key", "Test")
+	s.disk = newDiskCache(t.TempDir())
+	s.refreshAll()
+	es.requests = 0
+	s.cache = newCache(defaultMemTTL) // force the disk path, as a later tick would
+	return s
+}
+
+// The payoff: an unchanged history costs one request, not a re-download.
+func TestRefreshUnchangedCostsOneRequest(t *testing.T) {
+	now := time.Now()
+	es := newEventServer(t, 2,
+		clickEvent("https://a.com", now.Add(-time.Hour)),
+		clickEvent("https://a.com", now.Add(-2*time.Hour)),
+		clickEvent("https://b.com", now.Add(-3*time.Hour)),
+	)
+	s := primedServer(t, es)
+
+	s.refreshAll()
+
+	if es.requests != 1 {
+		t.Errorf("made %d all-clicks requests, want 1 (nothing changed)", es.requests)
+	}
+	counts, _ := s.cache.get(rawClicksKey)
+	if got := counts.(map[string]int)["https://a.com"]; got != 2 {
+		t.Errorf("a.com: got %d want 2 (cache must survive a no-op refresh)", got)
+	}
+}
+
+// New clicks are fetched without re-walking the history behind them, and merge
+// into the existing counts rather than replacing or double counting them.
+func TestRefreshSyncsOnlyNewClicks(t *testing.T) {
+	now := time.Now()
+	es := newEventServer(t, 2,
+		clickEvent("https://a.com", now.Add(-time.Hour)),
+		clickEvent("https://a.com", now.Add(-2*time.Hour)),
+		clickEvent("https://b.com", now.Add(-3*time.Hour)),
+	)
+	s := primedServer(t, es)
+
+	es.prepend(clickEvent("https://b.com", now))
+	s.refreshAll()
+
+	if es.requests != 1 {
+		t.Errorf("made %d all-clicks requests, want 1 (delta fits in a page)", es.requests)
+	}
+	v, _ := s.cache.get(rawClicksKey)
+	counts := v.(map[string]int)
+	if counts["https://b.com"] != 2 {
+		t.Errorf("b.com: got %d want 2 (1 cached + 1 new)", counts["https://b.com"])
+	}
+	if counts["https://a.com"] != 2 {
+		t.Errorf("a.com: got %d want 2 (untouched by the delta)", counts["https://a.com"])
+	}
+}
+
+// When the totals stop adding up, something changed behind the high-water mark
+// and the sync must rebuild instead of trusting the cache.
+func TestRefreshRebuildsOnDrift(t *testing.T) {
+	now := time.Now()
+	es := newEventServer(t, 2,
+		clickEvent("https://a.com", now.Add(-time.Hour)),
+		clickEvent("https://a.com", now.Add(-2*time.Hour)),
+		clickEvent("https://b.com", now.Add(-3*time.Hour)),
+	)
+	s := primedServer(t, es)
+
+	// An event disappears from behind the mark, as a deleted subscriber's would.
+	es.events = es.events[:2]
+	s.refreshAll()
+
+	if es.requests < 2 {
+		t.Errorf("made %d all-clicks requests, want a full rebuild", es.requests)
+	}
+	v, _ := s.cache.get(rawClicksKey)
+	counts := v.(map[string]int)
+	if _, ok := counts["https://b.com"]; ok {
+		t.Errorf("b.com should be gone after the rebuild, got %d", counts["https://b.com"])
+	}
+	if counts["https://a.com"] != 2 {
+		t.Errorf("a.com: got %d want 2", counts["https://a.com"])
 	}
 }
 

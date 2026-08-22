@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func fakeEvent(url string) emailEvent {
@@ -30,6 +31,27 @@ func TestFetchAllClicks(t *testing.T) {
 	}
 	if counts["https://b.com"] != 1 {
 		t.Errorf("b.com: got %d want 1", counts["https://b.com"])
+	}
+}
+
+// Events carrying no timestamp must still be counted by a full walk, rather
+// than tripping the early stop on the first page.
+func TestFetchClicksSinceZeroMarkTakesUndatedEvents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(eventsPage{
+			Results: []emailEvent{fakeEvent("https://a.com"), fakeEvent("https://b.com")},
+			Count:   2,
+		})
+	}))
+	defer srv.Close()
+	buttondownBase = srv.URL
+
+	d, err := fetchClicksSince("key", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.events != 2 {
+		t.Errorf("events: got %d want 2", d.events)
 	}
 }
 
@@ -62,18 +84,22 @@ func TestLookupEmailByIssue(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode(emailsPage{
-			Results: []email{{ID: "uuid-1", Subject: "DevOps'ish 322"}},
+			Results: []email{{ID: "uuid-1", Subject: "DevOps'ish 322", PublishDate: "2026-08-07T12:00:00Z"}},
 		})
 	}))
 	defer srv.Close()
 	buttondownBase = srv.URL
 
-	id, subject, err := lookupEmailByIssue("key", 322)
+	e, err := lookupEmailByIssue("key", 322)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id != "uuid-1" || subject != "DevOps'ish 322" {
-		t.Errorf("got id=%q subject=%q", id, subject)
+	if e.ID != "uuid-1" || e.Subject != "DevOps'ish 322" {
+		t.Errorf("got id=%q subject=%q", e.ID, e.Subject)
+	}
+	// The publish date drives cache TTLs, so it has to survive the lookup.
+	if e.PublishDate != "2026-08-07T12:00:00Z" {
+		t.Errorf("PublishDate: got %q", e.PublishDate)
 	}
 }
 
@@ -84,7 +110,7 @@ func TestLookupEmailByIssueNotFound(t *testing.T) {
 	defer srv.Close()
 	buttondownBase = srv.URL
 
-	_, _, err := lookupEmailByIssue("key", 999)
+	_, err := lookupEmailByIssue("key", 999)
 	if err == nil {
 		t.Error("expected error for unknown issue")
 	}

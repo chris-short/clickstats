@@ -9,11 +9,7 @@ import (
 	"time"
 )
 
-const (
-	allClicksTTL   = time.Hour
-	issueClicksTTL = 7 * 24 * time.Hour
-	analyticsTTL   = 30 * 24 * time.Hour
-)
+const allClicksTTL = time.Hour
 
 type issueEntry struct {
 	Clicks map[string]int `json:"c"`
@@ -26,8 +22,14 @@ type analyticsEntry struct {
 }
 
 type diskData struct {
-	AllClicks   map[string]int            `json:"ac,omitempty"`
-	AllSaved    time.Time                 `json:"as,omitempty"`
+	AllClicks map[string]int `json:"ac,omitempty"`
+	AllSaved  time.Time      `json:"as,omitempty"`
+	// AllTotal is the number of click events AllClicks was built from, as
+	// reported by the events collection, and AllNewest is the timestamp of the
+	// most recent event counted. Together they let a refresh fetch only what
+	// arrived since, then check the result adds up to what the API reports.
+	AllTotal    int                       `json:"at,omitempty"`
+	AllNewest   time.Time                 `json:"an_newest,omitempty"`
 	IssueClicks map[string]issueEntry     `json:"ic,omitempty"`
 	Analytics   map[string]analyticsEntry `json:"an,omitempty"`
 }
@@ -110,19 +112,47 @@ func (dc *diskCache) getAllClicks() map[string]int {
 	return dc.d.AllClicks
 }
 
-func (dc *diskCache) setAllClicks(counts map[string]int) {
+func (dc *diskCache) setAllClicks(counts map[string]int, total int, newest time.Time) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	dc.d.AllClicks = counts
+	dc.d.AllTotal = total
+	dc.d.AllNewest = newest
 	dc.d.AllSaved = time.Now()
 	dc.persistLocked()
 }
 
-func (dc *diskCache) getIssueClicks(emailID string) (map[string]int, bool) {
+// allClicksState returns the cached clicks together with the high-water mark
+// and event total they were built from. ok is false when there is nothing to
+// sync against, including cache files written before the mark was recorded, so
+// those fall back to one full walk and pick the mark up from there.
+func (dc *diskCache) allClicksState() (counts map[string]int, newest time.Time, total int, ok bool) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	if len(dc.d.AllClicks) == 0 || dc.d.AllNewest.IsZero() {
+		return nil, time.Time{}, 0, false
+	}
+	return dc.d.AllClicks, dc.d.AllNewest, dc.d.AllTotal, true
+}
+
+// markAllClicksVerified records that the cached clicks were just confirmed
+// current. Freshness here means "checked against the source", not "recently
+// downloaded", so a confirmed-unchanged cache resets the TTL without refetching.
+func (dc *diskCache) markAllClicksVerified() {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.d.AllSaved = time.Now()
+	dc.persistLocked()
+}
+
+// getIssueClicks takes its TTL from the caller for the same reason
+// getAnalytics does: a just-sent issue is still accumulating clicks, while an
+// old one has stopped. See engagementTTLFor.
+func (dc *diskCache) getIssueClicks(emailID string, ttl time.Duration) (map[string]int, bool) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	e, ok := dc.d.IssueClicks[emailID]
-	if !ok || time.Since(e.Saved) > issueClicksTTL {
+	if !ok || time.Since(e.Saved) > ttl {
 		return nil, false
 	}
 	return e.Clicks, true
@@ -135,11 +165,14 @@ func (dc *diskCache) setIssueClicks(emailID string, counts map[string]int) {
 	dc.persistLocked()
 }
 
-func (dc *diskCache) getAnalytics(emailID string) (analytics, bool) {
+// getAnalytics takes the TTL from the caller rather than using a fixed one: how
+// long an issue's analytics stay valid depends on how long ago it was sent, and
+// the disk cache doesn't know publish dates. See analyticsTTLFor.
+func (dc *diskCache) getAnalytics(emailID string, ttl time.Duration) (analytics, bool) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	e, ok := dc.d.Analytics[emailID]
-	if !ok || time.Since(e.Saved) > analyticsTTL {
+	if !ok || time.Since(e.Saved) > ttl {
 		return analytics{}, false
 	}
 	return e.A, true
