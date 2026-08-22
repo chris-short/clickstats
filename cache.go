@@ -30,6 +30,14 @@ func (c *cache) get(key string) (any, bool) {
 	return e.value, true
 }
 
+// setTTL changes the lifetime applied to entries stored from now on. Existing
+// entries keep the expiry they were given.
+func (c *cache) setTTL(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ttl = d
+}
+
 func (c *cache) set(key string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

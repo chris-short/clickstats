@@ -191,12 +191,12 @@ func (s *server) handlePrint(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid issue number", http.StatusBadRequest)
 		return
 	}
-	emailID, subject, err := lookupEmailByIssue(s.apiKey, n)
+	e, err := lookupEmailByIssue(s.apiKey, n)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	counts, err := s.cachedClicksForEmail(emailID)
+	counts, err := s.cachedClicksForEmail(e.ID, e.PublishDate)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -220,7 +220,7 @@ func (s *server) handlePrint(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rate := 0.0
-		if recipients, err := fetchDeliveryCount(s.apiKey, emailID); err == nil && recipients > 0 {
+		if recipients, err := fetchDeliveryCount(s.apiKey, e.ID); err == nil && recipients > 0 {
 			rate = float64(clicks) / float64(recipients) * 100
 		}
 		sp = &sponsorData{
@@ -236,7 +236,7 @@ func (s *server) handlePrint(w http.ResponseWriter, r *http.Request) {
 	if err := printTmpl.Execute(w, printData{
 		Issue:   n,
 		Name:    s.name,
-		Subject: subject,
+		Subject: e.Subject,
 		Date:    time.Now().Format("January 2, 2006"),
 		Links:   links,
 		Sponsor: sp,
