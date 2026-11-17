@@ -116,7 +116,8 @@
     .domain-num { color: #9ca3af; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
     /* ---- Issue table ---- */
-    .issue-cols { grid-template-columns: 56px 1fr 76px 76px 84px 84px; }
+    .issue-cols { grid-template-columns: 56px 84px 1fr 76px 76px 84px 84px; }
+    .issue-date { color: #9ca3af; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .domain-row.selected { background: #191934; }
     .issue-subject {
       color: #e2e8f0; font-size: 13px;
@@ -174,9 +175,11 @@
       .chart-wrap.sm { height: 180px; }
       .link-row { grid-template-columns: 24px 1fr auto 60px; gap: 8px; }
       .domain-cols { grid-template-columns: 24px 1fr 64px 48px 60px; }
-      /* Subject is dropped on narrow screens; the issue number takes its place. */
-      .issue-cols { grid-template-columns: 1fr 52px 52px 58px 58px; gap: 8px; }
+      /* Subject is dropped on narrow screens; the issue number and date take its place. */
+      .issue-cols { grid-template-columns: minmax(0, 1fr) 70px 48px 48px 52px 52px; gap: 6px; }
+      .issue-date { font-size: 11px; }
       .issue-subject { display: none; }
+      .domain-header.issue-cols span { white-space: normal; }
       .domain-row .link-bar-wrap { display: none; }
       .domain-header .bar-spacer { display: none; }
       .link-url { font-size: 12px; }
@@ -248,6 +251,7 @@
   </div>
   <div class="domain-header issue-cols">
     <span>Issue</span>
+    <span class="issue-date">Date</span>
     <span class="issue-subject">Subject</span>
     <span class="domain-num">Clicks</span>
     <span class="domain-num">Opens</span>
@@ -548,6 +552,14 @@
     return issue.deliveries > 0 ? rate.toFixed(1) + '%' : '—';
   }
 
+  // Publish dates arrive as ISO timestamps; show them in the viewer's local time.
+  function fmtIssueDate(iso) {
+    const d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d)) return '—';
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
   function renderIssueTable() {
     const container = document.getElementById('issue-table');
     if (!issueList.length) {
@@ -563,6 +575,7 @@
       const title = i.subject + (i.deliveries > 0 ? ' — ' + i.deliveries.toLocaleString() + ' deliveries' : '');
       return `<div class="domain-row issue-cols${sel}" data-issue="${i.number}" title="${escHtml(title)}">
         <span class="domain-name">#${i.number}</span>
+        <span class="issue-date">${escHtml(fmtIssueDate(i.date))}</span>
         <span class="issue-subject">${escHtml(i.subject)}</span>
         <span class="domain-num">${i.total_clicks.toLocaleString()}</span>
         <span class="domain-num">${i.deliveries > 0 ? i.opens.toLocaleString() : '—'}</span>
